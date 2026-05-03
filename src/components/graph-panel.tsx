@@ -26,6 +26,9 @@ type GraphPanelProps = {
 
 type FlowNode = AgentGraphNode | TaskGraphNode;
 
+const focusRingClass =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
+
 function buildGridPosition(
   index: number,
   columns: number,
@@ -94,7 +97,22 @@ export function GraphPanel({
   const widestColumns = Math.max(2, taskColumns, agentColumns);
   const dispatcherX = 220 + (widestColumns - 1) * 155;
   const agentStartY = 390 + (taskRows - 1) * 170;
-  const canvasHeight = 520 + Math.max(0, agentRows - 1) * 220 + Math.max(0, taskRows - 1) * 110;
+  const calculatedCanvasHeight =
+    520 + Math.max(0, agentRows - 1) * 220 + Math.max(0, taskRows - 1) * 110;
+  const canvasHeight = Math.max(420, Math.min(920, calculatedCanvasHeight));
+  const selectedNodeSnapshot = snapshot.nodeSnapshots[selectedNodeId];
+  const selectedTaskSnapshot = selectedTaskId
+    ? snapshot.taskSnapshots[selectedTaskId]
+    : undefined;
+  const hasRunContent =
+    snapshot.tasks.length > 0 ||
+    Object.values(snapshot.nodeSnapshots).some(
+      (node) =>
+        node.status !== "idle" ||
+        Boolean(node.latestOutput) ||
+        Boolean(node.errorCode) ||
+        node.warningCodes.length > 0,
+    );
 
   const flowNodes = useMemo<FlowNode[]>(() => {
     const taskNodes: TaskGraphNode[] = taskSnapshots.map((task, index) => ({
@@ -264,19 +282,26 @@ export function GraphPanel({
   };
 
   return (
-    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/70 shadow-2xl shadow-slate-950/30">
+    <section
+      id="graph-panel"
+      aria-labelledby="graph-panel-heading"
+      tabIndex={-1}
+      className="overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/70 shadow-2xl shadow-slate-950/30 scroll-mt-4"
+    >
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
         <div>
-          <h2 className="text-sm font-semibold text-slate-50">Agent graph</h2>
+          <h2 id="graph-panel-heading" className="text-sm font-semibold text-slate-50">
+            Agent graph
+          </h2>
           <p className="text-xs text-slate-400">
             Dispatcher, task, dependency, and report flow in one execution canvas.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => flowInstance?.fitView({ duration: 260, padding: 0.18 })}
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-200 transition-colors hover:bg-white/10"
+            className={`inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-200 transition-colors hover:bg-white/10 ${focusRingClass}`}
           >
             <ScanSearch className="h-3.5 w-3.5" />
             Fit run
@@ -284,7 +309,7 @@ export function GraphPanel({
           <button
             type="button"
             onClick={focusSelection}
-            className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] text-cyan-100 transition-colors hover:bg-cyan-400/15"
+            className={`inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] text-cyan-100 transition-colors hover:bg-cyan-400/15 ${focusRingClass}`}
           >
             <Focus className="h-3.5 w-3.5" />
             Focus selection
@@ -292,7 +317,13 @@ export function GraphPanel({
         </div>
       </div>
 
-      <div style={{ height: `${canvasHeight}px` }}>
+      <div className="border-b border-white/10 px-5 py-3 text-sm text-slate-300">
+        {hasRunContent
+          ? "Use the graph to inspect orchestration state visually, then confirm the same state in the text summary below."
+          : "Run or reopen a conversation to populate task routing, execution status, and worker reports."}
+      </div>
+
+      <div style={{ height: `${canvasHeight}px` }} aria-label="Orchestration graph canvas">
         <ReactFlow
           nodes={flowNodes}
           edges={flowEdges}
@@ -315,6 +346,63 @@ export function GraphPanel({
           <Controls showInteractive={false} />
         </ReactFlow>
       </div>
-    </div>
+
+      <div className="border-t border-white/10 p-4">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] 2xl:grid-cols-1">
+          <div className="rounded-2xl border border-white/10 bg-white/4 p-4">
+            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">
+              Selection summary
+            </p>
+            {selectedTaskSnapshot ? (
+              <div className="space-y-2 text-sm text-slate-200">
+                <p className="font-medium text-slate-100">{selectedTaskSnapshot.title}</p>
+                <p>{selectedTaskSnapshot.detail}</p>
+                <p className="text-xs text-slate-400">
+                  {selectedTaskSnapshot.agentName} · {selectedTaskSnapshot.status}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2 text-sm text-slate-200">
+                <p className="font-medium text-slate-100">{selectedNodeSnapshot.label}</p>
+                <p>{selectedNodeSnapshot.detail}</p>
+                <p className="text-xs text-slate-400">
+                  {selectedNodeSnapshot.provider} · {selectedNodeSnapshot.model} ·{" "}
+                  {selectedNodeSnapshot.status}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/4 p-4">
+            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">
+              Run outline
+            </p>
+            {taskSnapshots.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                No tasks yet. The dispatcher will create a task graph after the next run
+                starts.
+              </p>
+            ) : (
+              <ul className="space-y-2 text-sm text-slate-200">
+                {taskSnapshots.map((task) => (
+                  <li
+                    key={task.id}
+                    className="rounded-xl border border-white/10 bg-slate-900/50 p-3"
+                  >
+                    <p className="font-medium text-slate-100">{task.title}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {task.agentName} · {task.status}
+                      {task.dependsOn.length > 0
+                        ? ` · depends on ${task.dependsOn.join(", ")}`
+                        : " · no dependencies"}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }

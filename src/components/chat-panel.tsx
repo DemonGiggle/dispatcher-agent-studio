@@ -23,6 +23,9 @@ type RunAlert = {
   code?: OrchestrationErrorCode;
 };
 
+const focusRingClass =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
+
 type ChatPanelProps = {
   draft: string;
   messages: ConversationMessage[];
@@ -72,30 +75,39 @@ export function ChatPanel({
   const replayProgress = replayCursor ?? replayCount;
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <section
+      id="chat-panel"
+      aria-labelledby="chat-panel-heading"
+      tabIndex={-1}
+      className="flex h-full flex-col gap-4 scroll-mt-4"
+    >
       <div className="rounded-[28px] border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-slate-950/30">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-50">
+            <h2 id="chat-panel-heading" className="text-sm font-semibold text-slate-50">
               Dispatcher chat
             </h2>
             <p className="text-xs text-slate-400">
               One prompt in, multi-agent breakdown out.
             </p>
           </div>
-          <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-xs text-cyan-100">
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-xs text-cyan-100"
+          >
             {statusText}
           </div>
         </div>
 
-        <div className="mb-4 flex flex-wrap gap-2">
+        <div className="mb-4 flex flex-wrap gap-2" aria-label="Sample prompts">
           {samplePrompts.map((prompt) => (
             <button
               key={prompt}
               type="button"
               onClick={() => onPickPrompt(prompt)}
               disabled={isRunning}
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+              className={`rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
             >
               {prompt}
             </button>
@@ -108,7 +120,7 @@ export function ChatPanel({
             <p className="text-sm font-semibold text-slate-100">Recent runs</p>
           </div>
 
-          <div className="space-y-2">
+          <div className="max-h-60 space-y-2 overflow-auto pr-1" role="list">
             {recentRuns.length === 0 ? (
               <div className="rounded-xl border border-dashed border-white/10 bg-slate-900/40 p-3 text-sm text-slate-400">
                 Finished runs will appear here and can be reopened after refresh.
@@ -119,8 +131,13 @@ export function ChatPanel({
                   key={run.id}
                   type="button"
                   onClick={() => onOpenRun(run.id)}
+                  aria-pressed={activeRun?.id === run.id}
                   disabled={isRunning}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/60 p-3 text-left transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  className={`flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                    activeRun?.id === run.id
+                      ? "border-cyan-400/40 bg-cyan-400/10"
+                      : "border-white/10 bg-slate-900/60 hover:border-cyan-400/30 hover:bg-cyan-400/10"
+                  } ${focusRingClass}`}
                 >
                   <div>
                     <p className="text-sm font-medium text-slate-100">{run.title}</p>
@@ -159,12 +176,16 @@ export function ChatPanel({
               </span>
             </div>
 
-            <div className="mb-3 flex flex-wrap items-center gap-2">
+            <div
+              className="mb-3 flex flex-wrap items-center gap-2"
+              role="group"
+              aria-label="Replay controls"
+            >
               <button
                 type="button"
                 onClick={() => onReplaySeek(Math.max(0, replayProgress - 1))}
                 disabled={isRunning || replayProgress <= 0}
-                className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-100 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-50"
+                className={`inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-100 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-50 ${focusRingClass}`}
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 Step back
@@ -173,7 +194,7 @@ export function ChatPanel({
                 type="button"
                 onClick={onReplayToggle}
                 disabled={isRunning || replayCount === 0}
-                className="inline-flex items-center gap-1 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                className={`inline-flex items-center gap-1 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50 ${focusRingClass}`}
               >
                 {isReplayPlaying ? (
                   <Pause className="h-3.5 w-3.5" />
@@ -186,7 +207,7 @@ export function ChatPanel({
                 type="button"
                 onClick={() => onReplaySeek(Math.min(replayCount, replayProgress + 1))}
                 disabled={isRunning || replayProgress >= replayCount}
-                className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-100 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-50"
+                className={`inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-100 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-50 ${focusRingClass}`}
               >
                 Next
                 <ArrowRight className="h-3.5 w-3.5" />
@@ -195,7 +216,7 @@ export function ChatPanel({
                 type="button"
                 onClick={onReplayStop}
                 disabled={isRunning || replayCursor === null}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                className={`rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:border-white/20 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 ${focusRingClass}`}
               >
                 Exit replay
               </button>
@@ -204,13 +225,22 @@ export function ChatPanel({
               </span>
             </div>
 
+            <label htmlFor="replay-timeline" className="sr-only">
+              Replay timeline
+            </label>
             <input
+              id="replay-timeline"
               type="range"
               min={0}
               max={replayCount}
               step={1}
               value={replayProgress}
               onChange={(event) => onReplaySeek(Number(event.target.value))}
+              aria-valuetext={
+                replayCursor === null
+                  ? "Full run visible"
+                  : `${replayProgress} of ${replayCount} events`
+              }
               disabled={isRunning || replayCount === 0}
               className="w-full accent-cyan-400"
             />
@@ -258,7 +288,13 @@ export function ChatPanel({
         ) : null}
 
         <div className="space-y-3">
-          <div className="flex max-h-[520px] min-h-[520px] flex-col gap-3 overflow-auto rounded-3xl border border-white/10 bg-slate-900/60 p-4">
+          <div
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions text"
+            aria-busy={isRunning}
+            className="flex min-h-[320px] max-h-[55vh] flex-col gap-3 overflow-auto rounded-3xl border border-white/10 bg-slate-900/60 p-4 sm:min-h-[420px] xl:min-h-[520px] xl:max-h-[520px]"
+          >
             {messages.map((message) => {
               const isAssistant = message.role === "assistant";
 
@@ -298,13 +334,18 @@ export function ChatPanel({
           </div>
 
           {errorText ? (
-            <div className="rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+            <div
+              role="alert"
+              className="rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100"
+            >
               {errorText}
             </div>
           ) : null}
 
           {alert ? (
             <div
+              role={alert.tone === "info" ? "status" : "alert"}
+              aria-live={alert.tone === "info" ? "polite" : "assertive"}
               className={`rounded-2xl border px-4 py-3 text-sm ${
                 alert.tone === "error"
                   ? "border-rose-400/20 bg-rose-400/10 text-rose-100"
@@ -326,7 +367,11 @@ export function ChatPanel({
           ) : null}
 
           <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-4">
+            <label htmlFor="chat-draft" className="sr-only">
+              Describe the task for the dispatcher
+            </label>
             <textarea
+              id="chat-draft"
               data-testid="chat-draft"
               className="min-h-32 w-full resize-y bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500"
               placeholder="Describe the task you want the dispatcher to decompose..."
@@ -335,7 +380,7 @@ export function ChatPanel({
               disabled={isRunning}
             />
 
-            <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-slate-500">
                 The dispatcher will plan, route, collect reports, and synthesize the
                 answer.
@@ -345,7 +390,7 @@ export function ChatPanel({
                 type="button"
                 onClick={onSubmit}
                 disabled={isRunning || draft.trim().length === 0}
-                className="inline-flex items-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                className={`inline-flex w-full items-center justify-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 sm:w-auto ${focusRingClass}`}
               >
                 {isRunning ? (
                   <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -358,6 +403,6 @@ export function ChatPanel({
           </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

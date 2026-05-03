@@ -737,6 +737,30 @@ export function StudioApp() {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.14),transparent_28%),radial-gradient(circle_at_85%_18%,rgba(124,58,237,0.16),transparent_24%),linear-gradient(180deg,#020617,#0f172a)] px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
+      <a
+        href="#chat-panel"
+        className="sr-only absolute left-4 top-4 z-50 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-cyan-400"
+      >
+        Skip to chat panel
+      </a>
+      <a
+        href="#config-panel"
+        className="sr-only absolute left-40 top-4 z-50 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-cyan-400"
+      >
+        Skip to configuration
+      </a>
+      <a
+        href="#graph-panel"
+        className="sr-only absolute left-4 top-16 z-50 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-cyan-400"
+      >
+        Skip to graph
+      </a>
+      <a
+        href="#inspector-panel"
+        className="sr-only absolute left-40 top-16 z-50 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-cyan-400"
+      >
+        Skip to inspector
+      </a>
       <div className="mx-auto max-w-[1600px]">
         <header className="mb-6 rounded-[32px] border border-white/10 bg-slate-950/60 px-6 py-5 shadow-2xl shadow-slate-950/30 backdrop-blur">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
@@ -757,7 +781,7 @@ export function StudioApp() {
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
                 <div className="mb-1 flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-500">
                   <BrainCircuit className="h-3.5 w-3.5" />
@@ -790,50 +814,54 @@ export function StudioApp() {
           </div>
         </header>
 
-        <main className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)_520px]">
-          <ConfigPanel
-            dispatcher={dispatcher}
-            agents={agents}
-            disabled={isRunning}
-            onDispatcherChange={handleDispatcherChange}
-            onAgentChange={handleAgentChange}
-            onAddAgent={handleAddAgent}
-            onAddAgentFromTemplate={handleAddAgentFromTemplate}
-            onDuplicateAgent={handleDuplicateAgent}
-            onMoveAgent={handleMoveAgent}
-            onToggleAgent={handleToggleAgent}
-            onRemoveAgent={handleRemoveAgent}
-            onResetDefaults={handleResetDefaults}
-            providerHealthById={providerHealthById}
-            validationIssues={teamValidationIssues}
-            savedTeams={savedTeams}
-            onSaveCurrentTeam={handleSaveCurrentTeam}
-            onLoadSavedTeam={handleLoadSavedTeam}
-            onDeleteSavedTeam={handleDeleteSavedTeam}
-          />
+        <main className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)] 2xl:grid-cols-[360px_minmax(0,1fr)_520px]">
+          <div className="order-2 xl:order-1">
+            <ConfigPanel
+              dispatcher={dispatcher}
+              agents={agents}
+              disabled={isRunning}
+              onDispatcherChange={handleDispatcherChange}
+              onAgentChange={handleAgentChange}
+              onAddAgent={handleAddAgent}
+              onAddAgentFromTemplate={handleAddAgentFromTemplate}
+              onDuplicateAgent={handleDuplicateAgent}
+              onMoveAgent={handleMoveAgent}
+              onToggleAgent={handleToggleAgent}
+              onRemoveAgent={handleRemoveAgent}
+              onResetDefaults={handleResetDefaults}
+              providerHealthById={providerHealthById}
+              validationIssues={teamValidationIssues}
+              savedTeams={savedTeams}
+              onSaveCurrentTeam={handleSaveCurrentTeam}
+              onLoadSavedTeam={handleLoadSavedTeam}
+              onDeleteSavedTeam={handleDeleteSavedTeam}
+            />
+          </div>
 
-          <ChatPanel
-            draft={draft}
-            messages={messages}
-            samplePrompts={samplePrompts}
-            isRunning={isRunning}
-            statusText={displayStatusText}
-            errorText={errorText}
-            alert={runAlert}
-            recentRuns={recentRuns}
-            activeRun={activeRun}
-            replayCursor={replayCursor}
-            isReplayPlaying={isReplayPlaying}
-            onDraftChange={setDraft}
-            onSubmit={handleSubmit}
-            onPickPrompt={setDraft}
-            onOpenRun={handleOpenRun}
-            onReplaySeek={handleReplaySeek}
-            onReplayToggle={handleReplayToggle}
-            onReplayStop={handleReplayStop}
-          />
+          <div className="order-1 xl:order-2">
+            <ChatPanel
+              draft={draft}
+              messages={messages}
+              samplePrompts={samplePrompts}
+              isRunning={isRunning}
+              statusText={displayStatusText}
+              errorText={errorText}
+              alert={runAlert}
+              recentRuns={recentRuns}
+              activeRun={activeRun}
+              replayCursor={replayCursor}
+              isReplayPlaying={isReplayPlaying}
+              onDraftChange={setDraft}
+              onSubmit={handleSubmit}
+              onPickPrompt={setDraft}
+              onOpenRun={handleOpenRun}
+              onReplaySeek={handleReplaySeek}
+              onReplayToggle={handleReplayToggle}
+              onReplayStop={handleReplayStop}
+            />
+          </div>
 
-          <div className="space-y-4">
+          <div className="order-3 space-y-4 xl:col-span-2 2xl:col-span-1">
             <GraphPanel
               snapshot={snapshot}
               selectedNodeId={selectedNodeId}

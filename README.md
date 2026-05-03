@@ -9,6 +9,7 @@ A TypeScript web app for **dispatcher-led multi-agent LLM orchestration**. The f
 - **Agent capability editor**: every worker declares its role, specialty, prompt, and visual identity
 - **Graph visualization**: see which node is doing what, plus task routing between dispatcher and workers
 - **Input/output inspector**: inspect each node's latest prompt, output, and event trail
+- **Responsive and accessible UI**: keyboard-friendly panel navigation, visible focus states, and layouts that stay readable on mobile and desktop
 - **Mock fallback**: if a provider API key is missing, the run falls back to a mock provider and surfaces a visible warning
 
 ## Stack

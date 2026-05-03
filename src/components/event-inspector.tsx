@@ -86,6 +86,7 @@ export function EventInspector({
     : undefined;
   const latestInput = selectedTask?.latestInput ?? selectedNode.latestInput;
   const latestOutput = selectedTask?.latestOutput ?? selectedNode.latestOutput;
+  const hasRunEvents = events.length > 0;
   const relatedEvents = events.filter((event) => {
     if (selectedTask) {
       if (event.type === "dispatcher-plan") {
@@ -119,15 +120,29 @@ export function EventInspector({
   });
 
   return (
-    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/70 shadow-2xl shadow-slate-950/30">
+    <section
+      id="inspector-panel"
+      aria-labelledby="inspector-panel-heading"
+      tabIndex={-1}
+      className="overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/70 shadow-2xl shadow-slate-950/30 scroll-mt-4"
+    >
       <div className="border-b border-white/10 px-5 py-4">
-        <h2 className="text-sm font-semibold text-slate-50">Inspector</h2>
+        <h2 id="inspector-panel-heading" className="text-sm font-semibold text-slate-50">
+          Inspector
+        </h2>
         <p className="text-xs text-slate-400">
           Inspect the selected node or task and follow the run event trail in sync.
         </p>
       </div>
 
-      <div className="grid gap-4 p-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+      {!hasRunEvents ? (
+        <div className="border-b border-white/10 px-5 py-3 text-sm text-slate-400">
+          No run data yet. Start a run or reopen history to inspect inputs, outputs, and
+          event details.
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 p-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] 2xl:grid-cols-1">
         <div className="space-y-4">
           {selectedTask ? (
             <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4">
@@ -290,6 +305,6 @@ export function EventInspector({
           </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 }
