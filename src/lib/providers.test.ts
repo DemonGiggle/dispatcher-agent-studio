@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { generatePlainText, generateStructuredObject } from "@/lib/providers";
 
 describe("provider execution", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("falls back to the mock provider when credentials are missing", async () => {
     delete process.env.OPENAI_API_KEY;
 
@@ -87,6 +91,65 @@ describe("provider execution", () => {
       code: "unsupported-model",
       provider: "google",
       model: "not-a-real-model",
+    });
+  });
+
+  it("falls back to the mock provider when Ollama is unavailable locally", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("connection refused"));
+
+    const result = await generatePlainText({
+      selection: {
+        provider: "ollama",
+        model: "llama3.2",
+        temperature: 0.3,
+      },
+      system: "You are a local worker.",
+      prompt: "Respond once.",
+      mock: () => "Mock Ollama fallback",
+    });
+
+    expect(result.text).toBe("Mock Ollama fallback");
+    expect(result.meta).toMatchObject({
+      requestedProvider: "ollama",
+      requestedModel: "llama3.2",
+      effectiveProvider: "mock",
+      effectiveModel: "mock:llama3.2",
+      mode: "mock",
+    });
+    expect(result.meta.warning).toContain("Ollama is not reachable");
+  });
+
+  it("rejects Ollama models that are not currently exposed by the local runtime", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "qwen3:8b" }],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await expect(
+      generatePlainText({
+        selection: {
+          provider: "ollama",
+          model: "llama3.2",
+          temperature: 0.3,
+        },
+        system: "You are a local worker.",
+        prompt: "Respond once.",
+        mock: () => "unused",
+      }),
+    ).rejects.toMatchObject({
+      name: "ProviderExecutionError",
+      code: "unsupported-model",
+      provider: "ollama",
+      model: "llama3.2",
     });
   });
 });

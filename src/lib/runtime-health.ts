@@ -1,8 +1,11 @@
 import {
+  getDefaultProviderModelsById,
   getDefaultProviderHealth,
   providerCatalog,
+  type ModelCatalogEntry,
   type ProviderHealthEntry,
 } from "@/lib/model-catalog";
+import { fetchOllamaModels } from "@/lib/provider-runtime";
 import {
   ORCHESTRATION_EVENT_SCHEMA_VERSION,
   providerIds,
@@ -10,6 +13,7 @@ import {
 } from "@/lib/types";
 
 export type ProviderHealthMap = Record<ProviderId, ProviderHealthEntry>;
+export type ProviderModelMap = Record<ProviderId, ModelCatalogEntry[]>;
 
 export type RuntimeHealthReport = {
   status: "ok";
@@ -26,11 +30,34 @@ export type RuntimeHealthReport = {
   };
 };
 
-export function buildProviderHealth(): ProviderHealthMap {
+export async function buildProviderHealth(): Promise<ProviderHealthMap> {
   const health = getDefaultProviderHealth();
 
   for (const providerId of providerIds) {
     if (providerId === "mock") {
+      continue;
+    }
+
+    if (providerId === "ollama") {
+      const envVar = providerCatalog.ollama.envVar;
+
+      try {
+        await fetchOllamaModels();
+        health.ollama = {
+          providerId: "ollama",
+          envVar,
+          configured: true,
+          status: "configured",
+        };
+      } catch {
+        health.ollama = {
+          providerId: "ollama",
+          envVar,
+          configured: false,
+          status: "offline",
+        };
+      }
+
       continue;
     }
 
@@ -48,8 +75,8 @@ export function buildProviderHealth(): ProviderHealthMap {
   return health;
 }
 
-export function buildRuntimeHealthReport(): RuntimeHealthReport {
-  const providers = buildProviderHealth();
+export async function buildRuntimeHealthReport(): Promise<RuntimeHealthReport> {
+  const providers = await buildProviderHealth();
   const configuredLiveProviders = providerIds.reduce((count, providerId) => {
     if (providerId === "mock") {
       return count;
@@ -74,4 +101,20 @@ export function buildRuntimeHealthReport(): RuntimeHealthReport {
       ),
     },
   };
+}
+
+export async function buildProviderModels(): Promise<ProviderModelMap> {
+  const providerModels = getDefaultProviderModelsById();
+
+  try {
+    const ollamaModels = await fetchOllamaModels();
+
+    if (ollamaModels.length > 0) {
+      providerModels.ollama = ollamaModels;
+    }
+  } catch {
+    // Keep the static Ollama defaults when the local runtime is unavailable.
+  }
+
+  return providerModels;
 }

@@ -20,11 +20,12 @@ import {
 } from "@/lib/agent-builder";
 import type { SavedTeamRecord } from "@/lib/studio-persistence";
 import {
+  getDefaultProviderModelsById,
   getDefaultProviderHealth,
   getDefaultModel,
   getModelEntry,
   getProviderEntry,
-  getProviderModels,
+  type ModelCatalogEntry,
   type ProviderHealthEntry,
   providerOptions,
 } from "@/lib/model-catalog";
@@ -56,6 +57,7 @@ type ConfigPanelProps = {
   onSaveCurrentTeam: (name: string) => void;
   onLoadSavedTeam: (teamId: string) => void;
   onDeleteSavedTeam: (teamId: string) => void;
+  providerModelsById: Record<ProviderId, ModelCatalogEntry[]>;
 };
 
 type FieldProps = {
@@ -102,7 +104,15 @@ function renderProviderHealth(
   if (health.status === "configured") {
     return (
       <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-100">
-        credentials ready
+        {providerId === "ollama" ? "local ready" : "credentials ready"}
+      </span>
+    );
+  }
+
+  if (health.status === "offline") {
+    return (
+      <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-amber-100">
+        endpoint offline
       </span>
     );
   }
@@ -215,12 +225,15 @@ export function ConfigPanel({
   onSaveCurrentTeam,
   onLoadSavedTeam,
   onDeleteSavedTeam,
+  providerModelsById,
 }: ConfigPanelProps) {
   const [teamNameDraft, setTeamNameDraft] = useState("");
   const [templateQuery, setTemplateQuery] = useState("");
   const [templateCategory, setTemplateCategory] = useState("all");
   const dispatcherProviderEntry = getProviderEntry(dispatcher.provider);
-  const dispatcherModels = getProviderModels(dispatcher.provider);
+  const fallbackProviderModels = getDefaultProviderModelsById();
+  const dispatcherModels =
+    providerModelsById[dispatcher.provider] ?? fallbackProviderModels[dispatcher.provider];
   const dispatcherModelEntry = getModelEntry(dispatcher.provider, dispatcher.model);
   const activeAgents = agents.filter((agent) => agent.enabled);
   const templateCategories = useMemo(
@@ -308,7 +321,10 @@ export function ConfigPanel({
                   onChange={(event) => {
                     const nextProvider = event.target.value as DispatcherConfig["provider"];
                     onDispatcherChange("provider", nextProvider);
-                    onDispatcherChange("model", getDefaultModel(nextProvider));
+                    onDispatcherChange(
+                      "model",
+                      providerModelsById[nextProvider]?.[0]?.id ?? getDefaultModel(nextProvider),
+                    );
                   }}
                   disabled={disabled}
                 >
@@ -653,7 +669,8 @@ export function ConfigPanel({
         <div className="space-y-4">
           {agents.map((agent, index) => {
             const providerEntry = getProviderEntry(agent.provider);
-            const providerModels = getProviderModels(agent.provider);
+            const providerModels =
+              providerModelsById[agent.provider] ?? fallbackProviderModels[agent.provider];
             const providerModelEntry = getModelEntry(agent.provider, agent.model);
             const agentIssues = issuesByAgentId.get(agent.id) ?? [];
 
@@ -847,7 +864,12 @@ export function ConfigPanel({
                         onChange={(event) => {
                           const nextProvider = event.target.value as AgentConfig["provider"];
                           onAgentChange(agent.id, "provider", nextProvider);
-                          onAgentChange(agent.id, "model", getDefaultModel(nextProvider));
+                          onAgentChange(
+                            agent.id,
+                            "model",
+                            providerModelsById[nextProvider]?.[0]?.id ??
+                              getDefaultModel(nextProvider),
+                          );
                         }}
                         disabled={disabled}
                       >

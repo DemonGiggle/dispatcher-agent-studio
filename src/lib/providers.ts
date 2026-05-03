@@ -5,6 +5,11 @@ import { generateObject, generateText, streamText } from "ai";
 import { z } from "zod";
 
 import { getProviderEntry, isSupportedModel } from "@/lib/model-catalog";
+import {
+  fetchOllamaModels,
+  getOllamaApiKey,
+  getOllamaBaseURL,
+} from "@/lib/provider-runtime";
 import type {
   LlmSelection,
   OrchestrationErrorCode,
@@ -12,7 +17,7 @@ import type {
   ProviderId,
 } from "@/lib/types";
 
-const providerEnvVars: Record<Exclude<ProviderId, "mock">, string> = {
+const providerEnvVars: Record<Exclude<ProviderId, "mock" | "ollama">, string> = {
   openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
@@ -149,6 +154,10 @@ function classifyProviderError(
 }
 
 function assertSupportedModelSelection(selection: LlmSelection) {
+  if (selection.provider === "ollama") {
+    return;
+  }
+
   if (isSupportedModel(selection.provider, selection.model)) {
     return;
   }
@@ -198,7 +207,10 @@ function pause(ms: number, signal?: AbortSignal) {
   });
 }
 
-function resolveLanguageModel(selection: LlmSelection): ResolvedModel {
+async function resolveLanguageModel(
+  selection: LlmSelection,
+  abortSignal?: AbortSignal,
+): Promise<ResolvedModel> {
   assertSupportedModelSelection(selection);
 
   if (selection.provider === "mock") {
@@ -212,6 +224,60 @@ function resolveLanguageModel(selection: LlmSelection): ResolvedModel {
         mode: "mock",
       },
     };
+  }
+
+  if (selection.provider === "ollama") {
+    try {
+      const availableModels = await fetchOllamaModels({ signal: abortSignal });
+
+      if (
+        availableModels.length > 0 &&
+        !availableModels.some((model) => model.id === selection.model)
+      ) {
+        throw new ProviderExecutionError(
+          "unsupported-model",
+          selection.provider,
+          selection.model,
+          `Ollama does not currently expose model "${selection.model}". Pick one of the locally available models or pull it into Ollama first.`,
+        );
+      }
+
+      return {
+        kind: "live",
+        model: createOpenAI({
+          apiKey: getOllamaApiKey(),
+          baseURL: getOllamaBaseURL(),
+          name: "ollama",
+        })(selection.model),
+        meta: {
+          requestedProvider: selection.provider,
+          requestedModel: selection.model,
+          effectiveProvider: selection.provider,
+          effectiveModel: selection.model,
+          mode: "live",
+        },
+      };
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+
+      if (isProviderExecutionError(error)) {
+        throw error;
+      }
+
+      return {
+        kind: "mock",
+        meta: {
+          requestedProvider: selection.provider,
+          requestedModel: selection.model,
+          effectiveProvider: "mock",
+          effectiveModel: `mock:${selection.model}`,
+          mode: "mock",
+          warning: `Ollama is not reachable at ${getOllamaBaseURL()}. Falling back to the mock provider for this run.`,
+        },
+      };
+    }
   }
 
   const envVar = providerEnvVars[selection.provider];
@@ -294,7 +360,7 @@ export async function generatePlainText({
   mock,
   onChunk,
 }: TextRequest): Promise<{ text: string; meta: ProviderExecutionMeta }> {
-  const resolved = resolveLanguageModel(selection);
+  const resolved = await resolveLanguageModel(selection, abortSignal);
 
   if (resolved.kind === "mock") {
     const text = mock();
@@ -365,7 +431,7 @@ export async function generateStructuredObject<T>({
   schemaName,
   mock,
 }: ObjectRequest<T>): Promise<{ object: T; meta: ProviderExecutionMeta }> {
-  const resolved = resolveLanguageModel(selection);
+  const resolved = await resolveLanguageModel(selection, abortSignal);
 
   if (resolved.kind === "mock") {
     await pause(360, abortSignal);

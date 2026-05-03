@@ -14,7 +14,7 @@ export type ProviderCatalogEntry = {
   models: ModelCatalogEntry[];
 };
 
-export type ProviderReadinessStatus = "mock" | "configured" | "missing-key";
+export type ProviderReadinessStatus = "mock" | "configured" | "missing-key" | "offline";
 
 export type ProviderHealthEntry = {
   providerId: ProviderId;
@@ -53,6 +53,30 @@ export const providerCatalog: Record<ProviderId, ProviderCatalogEntry> = {
         id: "demo-specialist",
         label: "Demo Specialist",
         description: "Generic mock specialist output.",
+      },
+    ],
+  },
+  ollama: {
+    id: "ollama",
+    label: "Ollama",
+    description:
+      "Local Ollama models through the OpenAI-compatible endpoint on 127.0.0.1:11434/v1.",
+    envVar: "OLLAMA_BASE_URL",
+    models: [
+      {
+        id: "llama3.2",
+        label: "llama3.2",
+        description: "Common local default for general-purpose local runs.",
+      },
+      {
+        id: "qwen3",
+        label: "qwen3",
+        description: "Strong local reasoning option when available in Ollama.",
+      },
+      {
+        id: "phi4-mini",
+        label: "phi4-mini",
+        description: "Compact local model option for lighter workflows.",
       },
     ],
   },
@@ -149,6 +173,16 @@ export function getDefaultModel(providerId: ProviderId): string {
   return providerCatalog[providerId].models[0]?.id ?? "demo-specialist";
 }
 
+export function getDefaultProviderModelsById(): Record<ProviderId, ModelCatalogEntry[]> {
+  return {
+    mock: [...providerCatalog.mock.models],
+    ollama: [...providerCatalog.ollama.models],
+    openai: [...providerCatalog.openai.models],
+    anthropic: [...providerCatalog.anthropic.models],
+    google: [...providerCatalog.google.models],
+  };
+}
+
 export function isSupportedModel(providerId: ProviderId, modelId: string): boolean {
   return providerCatalog[providerId].models.some((model) => model.id === modelId);
 }
@@ -166,6 +200,12 @@ export function getDefaultProviderHealth(): Record<ProviderId, ProviderHealthEnt
       providerId: "mock",
       configured: true,
       status: "mock",
+    },
+    ollama: {
+      providerId: "ollama",
+      envVar: providerCatalog.ollama.envVar,
+      configured: false,
+      status: "offline",
     },
     openai: {
       providerId: "openai",

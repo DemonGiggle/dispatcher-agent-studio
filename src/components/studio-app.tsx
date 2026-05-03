@@ -29,7 +29,9 @@ import {
   samplePrompts,
 } from "@/lib/defaults";
 import {
+  getDefaultProviderModelsById,
   getDefaultProviderHealth,
+  type ModelCatalogEntry,
   type ProviderHealthEntry,
 } from "@/lib/model-catalog";
 import {
@@ -213,6 +215,9 @@ export function StudioApp() {
   const [providerHealthById, setProviderHealthById] = useState<
     Record<ProviderId, ProviderHealthEntry>
   >(getDefaultProviderHealth);
+  const [providerModelsById, setProviderModelsById] = useState<
+    Record<ProviderId, ModelCatalogEntry[]>
+  >(getDefaultProviderModelsById);
   const [isRunning, setIsRunning] = useState(false);
   const [savedTeams, setSavedTeams] = useState<SavedTeamRecord[]>([]);
   const [recentRuns, setRecentRuns] = useState<SavedRunRecord[]>([]);
@@ -283,10 +288,15 @@ export function StudioApp() {
 
         const payload = (await response.json()) as {
           providers?: Record<ProviderId, ProviderHealthEntry>;
+          providerModels?: Record<ProviderId, ModelCatalogEntry[]>;
         };
 
         if (active && payload.providers) {
           setProviderHealthById(payload.providers);
+        }
+
+        if (active && payload.providerModels) {
+          setProviderModelsById(payload.providerModels);
         }
       } catch {
         // Keep the default missing-key state when the status endpoint is unavailable.
@@ -1020,6 +1030,7 @@ export function StudioApp() {
               onRemoveAgent={handleRemoveAgent}
               onResetDefaults={handleResetDefaults}
               providerHealthById={providerHealthById}
+              providerModelsById={providerModelsById}
               validationIssues={teamValidationIssues}
               savedTeams={savedTeams}
               onSaveCurrentTeam={handleSaveCurrentTeam}
