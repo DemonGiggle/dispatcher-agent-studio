@@ -8,6 +8,13 @@ import { ConfigPanel } from "@/components/config-panel";
 import { EventInspector } from "@/components/event-inspector";
 import { GraphPanel } from "@/components/graph-panel";
 import {
+  createBlankAgent,
+  createAgentFromTemplate,
+  duplicateAgent,
+  getEnabledAgents,
+  validateAgentTeam,
+} from "@/lib/agent-builder";
+import {
   cloneAgentConfigs,
   cloneDispatcherConfig,
   cloneRuntimeOptions,
@@ -15,7 +22,6 @@ import {
   samplePrompts,
 } from "@/lib/defaults";
 import {
-  getDefaultModel,
   getDefaultProviderHealth,
   type ProviderHealthEntry,
 } from "@/lib/model-catalog";
@@ -156,10 +162,12 @@ export function StudioApp() {
     Record<ProviderId, ProviderHealthEntry>
   >(getDefaultProviderHealth);
   const [isRunning, setIsRunning] = useState(false);
+  const enabledAgents = useMemo(() => getEnabledAgents(agents), [agents]);
+  const teamValidationIssues = useMemo(() => validateAgentTeam(agents), [agents]);
 
   const snapshot = useMemo(
-    () => deriveRunSnapshot(dispatcher, agents, events),
-    [agents, dispatcher, events],
+    () => deriveRunSnapshot(dispatcher, enabledAgents, events),
+    [dispatcher, enabledAgents, events],
   );
 
   useEffect(() => {
@@ -214,19 +222,75 @@ export function StudioApp() {
 
     setAgents((current) => [
       ...current,
-      {
-        id: createId("agent"),
-        name: `Specialist ${current.length + 1}`,
-        role: "Specialist",
-        specialty: "Describe what this agent is best at.",
-        provider: "mock",
-        model: getDefaultModel("mock"),
-        temperature: 0.45,
-        systemPrompt:
-          "You are a focused specialist. Return structured, practical recommendations for the assigned task.",
-        accent: accentPalette[nextIndex % accentPalette.length],
-      },
+      createBlankAgent(
+        createId("agent"),
+        accentPalette[nextIndex % accentPalette.length],
+      ),
     ]);
+  };
+
+  const handleAddAgentFromTemplate = (templateId: string) => {
+    const nextIndex = agents.length;
+
+    setAgents((current) => [
+      ...current,
+      createAgentFromTemplate(templateId, createId("agent"), {
+        accent: accentPalette[nextIndex % accentPalette.length],
+      }),
+    ]);
+  };
+
+  const handleDuplicateAgent = (agentId: string) => {
+    setAgents((current) => {
+      const index = current.findIndex((agent) => agent.id === agentId);
+
+      if (index < 0) {
+        return current;
+      }
+
+      const clonedAgent = duplicateAgent(current[index], createId("agent"));
+      clonedAgent.accent = accentPalette[current.length % accentPalette.length];
+
+      return [
+        ...current.slice(0, index + 1),
+        clonedAgent,
+        ...current.slice(index + 1),
+      ];
+    });
+  };
+
+  const handleMoveAgent = (agentId: string, direction: "up" | "down") => {
+    setAgents((current) => {
+      const index = current.findIndex((agent) => agent.id === agentId);
+
+      if (index < 0) {
+        return current;
+      }
+
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+
+      if (targetIndex < 0 || targetIndex >= current.length) {
+        return current;
+      }
+
+      const nextAgents = [...current];
+      const [agent] = nextAgents.splice(index, 1);
+      nextAgents.splice(targetIndex, 0, agent);
+      return nextAgents;
+    });
+  };
+
+  const handleToggleAgent = (agentId: string) => {
+    setAgents((current) =>
+      current.map((agent) =>
+        agent.id === agentId ? { ...agent, enabled: !agent.enabled } : agent,
+      ),
+    );
+
+    if (selectedNodeId === agentId) {
+      setSelectedNodeId("dispatcher");
+      setSelectedTaskId(undefined);
+    }
   };
 
   const handleRemoveAgent = (agentId: string) => {
@@ -262,6 +326,16 @@ export function StudioApp() {
       return;
     }
 
+    if (teamValidationIssues.length > 0) {
+      setRunAlert({
+        tone: "error",
+        title: "Fix the agent team before running",
+        detail: teamValidationIssues.map((issue) => issue.message).join(" "),
+      });
+      setStatusText("Resolve the team configuration issues first.");
+      return;
+    }
+
     const nextMessages: ConversationMessage[] = [
       ...messages,
       {
@@ -289,7 +363,7 @@ export function StudioApp() {
           prompt,
           messages: nextMessages,
           dispatcher,
-          agents,
+          agents: enabledAgents,
           runtime,
         },
         (event) => {
@@ -408,7 +482,7 @@ export function StudioApp() {
                   Agents
                 </div>
                 <p className="text-sm font-medium text-slate-50">
-                  {agents.length} specialist{agents.length === 1 ? "" : "s"}
+                  {enabledAgents.length}/{agents.length} active
                 </p>
               </div>
 
@@ -432,9 +506,14 @@ export function StudioApp() {
             onDispatcherChange={handleDispatcherChange}
             onAgentChange={handleAgentChange}
             onAddAgent={handleAddAgent}
+            onAddAgentFromTemplate={handleAddAgentFromTemplate}
+            onDuplicateAgent={handleDuplicateAgent}
+            onMoveAgent={handleMoveAgent}
+            onToggleAgent={handleToggleAgent}
             onRemoveAgent={handleRemoveAgent}
             onResetDefaults={handleResetDefaults}
             providerHealthById={providerHealthById}
+            validationIssues={teamValidationIssues}
           />
 
           <ChatPanel

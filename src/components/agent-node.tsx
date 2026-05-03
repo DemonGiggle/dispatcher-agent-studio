@@ -113,6 +113,24 @@ export function AgentNode({ id, data }: NodeProps<AgentGraphNode>) {
             />
           </div>
 
+          {data.capabilities.length > 0 ? (
+            <div className="rounded-xl border border-white/8 bg-white/4 p-2.5">
+              <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                Strengths
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {data.capabilities.slice(0, 4).map((capability) => (
+                  <span
+                    key={capability}
+                    className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-[10px] text-cyan-100"
+                  >
+                    {capability}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {data.latestOutput ? (
             <div className="rounded-xl border border-white/8 bg-white/4 p-2.5">
               <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-slate-500">

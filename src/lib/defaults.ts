@@ -4,6 +4,7 @@ import type {
   DispatcherConfig,
   OrchestrationRuntimeOptions,
 } from "@/lib/types";
+import { createAgentFromTemplate } from "@/lib/agent-builder";
 import { getDefaultModel } from "@/lib/model-catalog";
 
 export const defaultDispatcher: DispatcherConfig = {
@@ -17,45 +18,9 @@ export const defaultDispatcher: DispatcherConfig = {
 };
 
 export const defaultAgents: AgentConfig[] = [
-  {
-    id: "agent-product",
-    name: "Product Strategist",
-    role: "Product",
-    specialty:
-      "Clarifies scope, user value, edge cases, and success criteria for the request.",
-    provider: "anthropic",
-    model: "claude-sonnet-4-5",
-    temperature: 0.4,
-    systemPrompt:
-      "You are a product-minded specialist. Identify requirements, UX tradeoffs, assumptions, and missing decisions. Return practical recommendations the dispatcher can synthesize.",
-    accent: "#7c3aed",
-  },
-  {
-    id: "agent-architect",
-    name: "System Architect",
-    role: "Architecture",
-    specialty:
-      "Designs the system shape, data flow, orchestration contracts, and technical decomposition.",
-    provider: "openai",
-    model: getDefaultModel("openai"),
-    temperature: 0.35,
-    systemPrompt:
-      "You are a senior system architect. Produce implementation-ready technical structure, interfaces, and sequencing. Keep the design grounded and concrete.",
-    accent: "#0ea5e9",
-  },
-  {
-    id: "agent-ux",
-    name: "UX Visualizer",
-    role: "Design",
-    specialty:
-      "Translates behavior into UI states, graph visualization ideas, and interaction details.",
-    provider: "google",
-    model: "gemini-2.5-flash",
-    temperature: 0.5,
-    systemPrompt:
-      "You are a UX and visualization specialist. Focus on clear user flows, status visibility, visual hierarchy, graph states, and explainable interfaces.",
-    accent: "#f97316",
-  },
+  createAgentFromTemplate("product", "agent-product"),
+  createAgentFromTemplate("architect", "agent-architect"),
+  createAgentFromTemplate("ux", "agent-ux"),
 ];
 
 export const starterMessages: ConversationMessage[] = [

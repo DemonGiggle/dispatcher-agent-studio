@@ -194,6 +194,21 @@ export function EventInspector({
                   {selectedNode.provider} · {selectedNode.model}
                 </dd>
               </div>
+              {selectedNode.capabilities.length > 0 ? (
+                <div>
+                  <dt className="mb-1 text-slate-500">Strengths</dt>
+                  <dd className="flex flex-wrap gap-2 text-slate-300">
+                    {selectedNode.capabilities.map((capability) => (
+                      <span
+                        key={capability}
+                        className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-[10px] text-cyan-100"
+                      >
+                        {capability}
+                      </span>
+                    ))}
+                  </dd>
+                </div>
+              ) : null}
               {selectedNode.errorCode ? (
                 <div>
                   <dt className="mb-1 text-slate-500">Error code</dt>
