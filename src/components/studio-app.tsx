@@ -56,6 +56,10 @@ function buildStatusText(event: OrchestrationEvent): string {
       return event.detail;
     case "dispatcher-plan":
       return "Tasks routed to specialists.";
+    case "task-assignment":
+      return event.detail;
+    case "node-chunk":
+      return event.detail;
     case "agent-result":
       return `${event.task.title} completed.`;
     case "final-response":
@@ -288,6 +292,10 @@ export function StudioApp() {
         (event) => {
           setEvents((current) => [...current, event]);
           setStatusText(buildStatusText(event));
+
+          if (event.type === "node-chunk") {
+            setSelectedNodeId(event.nodeId);
+          }
 
           if (event.type === "agent-result") {
             setSelectedNodeId(event.nodeId);

@@ -92,11 +92,12 @@ export function GraphPanel({
       },
     ];
 
-    for (const task of snapshot.tasks) {
-      const agentSnapshot = snapshot.nodeSnapshots[task.agentId];
-      const isActive =
-        agentSnapshot?.status === "running" ||
-        agentSnapshot?.status === "completed";
+      for (const task of snapshot.tasks) {
+        const agentSnapshot = snapshot.nodeSnapshots[task.agentId];
+        const isActive =
+          agentSnapshot?.status === "queued" ||
+          agentSnapshot?.status === "running" ||
+          agentSnapshot?.status === "completed";
 
       edges.push(
         {

@@ -1,7 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateObject, generateText } from "ai";
+import { generateObject, generateText, streamText } from "ai";
 import { z } from "zod";
 
 import { getProviderEntry, isSupportedModel } from "@/lib/model-catalog";
@@ -50,6 +50,11 @@ type TextRequest = {
   abortSignal?: AbortSignal;
   timeoutMs?: number;
   mock: () => string;
+  onChunk?: (
+    chunk: string,
+    aggregate: string,
+    meta: ProviderExecutionMeta,
+  ) => Promise<void> | void;
 };
 
 type ObjectRequest<T> = {
@@ -266,6 +271,20 @@ function resolveLanguageModel(selection: LlmSelection): ResolvedModel {
   }
 }
 
+function splitMockStream(text: string, maxChunkLength = 96): string[] {
+  if (text.length <= maxChunkLength) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+
+  for (let index = 0; index < text.length; index += maxChunkLength) {
+    chunks.push(text.slice(index, index + maxChunkLength));
+  }
+
+  return chunks;
+}
+
 export async function generatePlainText({
   selection,
   system,
@@ -273,16 +292,44 @@ export async function generatePlainText({
   abortSignal,
   timeoutMs,
   mock,
+  onChunk,
 }: TextRequest): Promise<{ text: string; meta: ProviderExecutionMeta }> {
   const resolved = resolveLanguageModel(selection);
 
   if (resolved.kind === "mock") {
-    await pause(280, abortSignal);
-    return { text: mock(), meta: resolved.meta };
+    const text = mock();
+
+    if (!onChunk) {
+      await pause(280, abortSignal);
+      return { text, meta: resolved.meta };
+    }
+
+    let aggregate = "";
+
+    for (const chunk of splitMockStream(text)) {
+      await pause(45, abortSignal);
+      aggregate += chunk;
+      await onChunk(chunk, aggregate, resolved.meta);
+    }
+
+    return { text, meta: resolved.meta };
   }
 
   try {
-    const result = await generateText({
+    if (!onChunk) {
+      const result = await generateText({
+        model: resolved.model,
+        system,
+        prompt,
+        temperature: selection.temperature,
+        abortSignal,
+        timeout: timeoutMs,
+      });
+
+      return { text: result.text, meta: resolved.meta };
+    }
+
+    const result = streamText({
       model: resolved.model,
       system,
       prompt,
@@ -291,7 +338,14 @@ export async function generatePlainText({
       timeout: timeoutMs,
     });
 
-    return { text: result.text, meta: resolved.meta };
+    let text = "";
+
+    for await (const chunk of result.textStream) {
+      text += chunk;
+      await onChunk(chunk, text, resolved.meta);
+    }
+
+    return { text, meta: resolved.meta };
   } catch (error) {
     if (isAbortError(error)) {
       throw error;

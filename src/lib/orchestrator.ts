@@ -1,7 +1,9 @@
 import {
+  ORCHESTRATION_EVENT_SCHEMA_VERSION,
   dispatcherPlanSchema,
   type AgentConfig,
   type DispatcherPlan,
+  type NodeExecutionPhase,
   type NodeStatus,
   type OrchestrationErrorCode,
   type OrchestrationEvent,
@@ -48,9 +50,15 @@ export type OrchestrationExecutor = {
     plan: DispatcherPlan;
     task: PlanTask;
     agent: AgentConfig;
+    dependencyReports: WorkerReport[];
     prompt: string;
     attempt: number;
     abortSignal: AbortSignal;
+    onChunk?: (
+      chunk: string,
+      aggregate: string,
+      meta: ProviderExecutionMeta,
+    ) => Promise<void>;
   }): Promise<ExecutorTextResult>;
   synthesize(args: {
     request: OrchestrationRequest;
@@ -58,6 +66,11 @@ export type OrchestrationExecutor = {
     workerReports: WorkerReport[];
     prompt: string;
     abortSignal: AbortSignal;
+    onChunk?: (
+      chunk: string,
+      aggregate: string,
+      meta: ProviderExecutionMeta,
+    ) => Promise<void>;
   }): Promise<ExecutorTextResult>;
 };
 
@@ -195,6 +208,15 @@ function createId(prefix: string): string {
 
 function now(): string {
   return new Date().toISOString();
+}
+
+function eventBase(runId: string) {
+  return {
+    schemaVersion: ORCHESTRATION_EVENT_SCHEMA_VERSION,
+    eventId: createId("evt"),
+    runId,
+    timestamp: now(),
+  } as const;
 }
 
 function trimBlock(text: string, limit = 1_600): string {
@@ -701,14 +723,23 @@ function createDefaultExecutor(
 
       return { plan: result.object, meta: result.meta };
     },
-    async executeTask({ request, task, agent, prompt, abortSignal }) {
+    async executeTask({
+      request,
+      task,
+      agent,
+      dependencyReports,
+      prompt,
+      abortSignal,
+      onChunk,
+    }) {
       const result = await generatePlainText({
         selection: agent,
         system: agent.systemPrompt,
         prompt,
         abortSignal,
         timeoutMs: runtime.taskTimeoutMs,
-        mock: () => mockAgentResponse(request, task, agent, []),
+        mock: () => mockAgentResponse(request, task, agent, dependencyReports),
+        onChunk,
       });
 
       return {
@@ -716,7 +747,14 @@ function createDefaultExecutor(
         meta: result.meta,
       };
     },
-    async synthesize({ request, plan, workerReports, prompt, abortSignal }) {
+    async synthesize({
+      request,
+      plan,
+      workerReports,
+      prompt,
+      abortSignal,
+      onChunk,
+    }) {
       const result = await generatePlainText({
         selection: request.dispatcher,
         system: request.dispatcher.systemPrompt,
@@ -724,6 +762,7 @@ function createDefaultExecutor(
         abortSignal,
         timeoutMs: runtime.dispatcherTimeoutMs,
         mock: () => mockDispatcherResponse(request, plan, workerReports),
+        onChunk,
       });
 
       return {
@@ -751,10 +790,8 @@ async function emitNodeStatus(
   } = {},
 ) {
   await emit({
+    ...eventBase(runId),
     type: "node-status",
-    eventId: createId("evt"),
-    runId,
-    timestamp: now(),
     nodeId,
     status,
     errorCode: options.errorCode,
@@ -780,14 +817,64 @@ async function emitProviderWarning(
   }
 
   await emit({
+    ...eventBase(runId),
     type: "provider-warning",
-    eventId: createId("evt"),
-    runId,
-    timestamp: now(),
     nodeId,
     errorCode,
     message: meta.warning,
     provider: meta,
+  });
+}
+
+async function emitTaskAssignment(
+  emit: EmitEvent,
+  runId: string,
+  task: PlanTask,
+) {
+  await emit({
+    ...eventBase(runId),
+    type: "task-assignment",
+    nodeId: task.agentId,
+    dispatcherId: "dispatcher",
+    task,
+    detail:
+      task.dependsOn.length === 0
+        ? "Dispatcher assigned this task and it is ready to run."
+        : `Dispatcher assigned this task. Waiting on: ${task.dependsOn.join(", ")}.`,
+  });
+}
+
+async function emitNodeChunk(
+  emit: EmitEvent,
+  runId: string,
+  nodeId: string,
+  phase: NodeExecutionPhase,
+  title: string,
+  detail: string,
+  sequence: number,
+  input: string,
+  chunk: string,
+  aggregate: string,
+  provider: ProviderExecutionMeta,
+  options: {
+    taskId?: string;
+    attempt?: number;
+  } = {},
+) {
+  await emit({
+    ...eventBase(runId),
+    type: "node-chunk",
+    nodeId,
+    phase,
+    title,
+    detail,
+    sequence,
+    taskId: options.taskId,
+    attempt: options.attempt,
+    input,
+    chunk,
+    aggregate,
+    provider,
   });
 }
 
@@ -815,10 +902,8 @@ export async function runOrchestration(
       .join("\n");
 
     await emit({
+      ...eventBase(runId),
       type: "run-start",
-      eventId: createId("evt"),
-      runId,
-      timestamp: now(),
       prompt: request.prompt,
       dispatcherId: "dispatcher",
       agentIds: request.agents.map((agent) => agent.id),
@@ -847,10 +932,8 @@ export async function runOrchestration(
     const plan = normalizePlan(planningResult.plan, request.agents, request.prompt);
 
     await emit({
+      ...eventBase(runId),
       type: "dispatcher-plan",
-      eventId: createId("evt"),
-      runId,
-      timestamp: now(),
       nodeId: "dispatcher",
       summary: plan.summary,
       tasks: plan.tasks,
@@ -859,6 +942,10 @@ export async function runOrchestration(
       output: JSON.stringify(plan, null, 2),
       provider: planningResult.meta,
     });
+
+    for (const task of plan.tasks) {
+      await emitTaskAssignment(emit, runId, task);
+    }
 
     const semaphore = new Semaphore(runtime.maxParallelTasks);
     const taskPromises = new Map<string, Promise<WorkerReport>>();
@@ -953,6 +1040,9 @@ export async function runOrchestration(
             `Run cancelled while preparing task "${task.title}".`,
           );
 
+          let lastStreamedOutput = "";
+          let chunkSequence = 0;
+
           try {
             const result = await semaphore.use(runSignal, async () => {
               await emitNodeStatus(
@@ -976,9 +1066,31 @@ export async function runOrchestration(
                 plan,
                 task,
                 agent,
+                dependencyReports,
                 prompt: agentInput,
                 attempt,
                 abortSignal: runSignal,
+                onChunk: async (chunk, aggregate, meta) => {
+                  chunkSequence += 1;
+                  lastStreamedOutput = aggregate;
+                  await emitNodeChunk(
+                    emit,
+                    runId,
+                    agent.id,
+                    "task",
+                    task.title,
+                    `${agent.name} is streaming a specialist report.`,
+                    chunkSequence,
+                    agentInput,
+                    chunk,
+                    aggregate,
+                    meta,
+                    {
+                      taskId: task.id,
+                      attempt,
+                    },
+                  );
+                },
               });
             });
 
@@ -994,10 +1106,8 @@ export async function runOrchestration(
             taskTerminalStates.add(task.id);
 
             await emit({
+              ...eventBase(runId),
               type: "agent-result",
-              eventId: createId("evt"),
-              runId,
-              timestamp: now(),
               nodeId: agent.id,
               task,
               attempt,
@@ -1030,7 +1140,7 @@ export async function runOrchestration(
                 {
                   taskId: task.id,
                   attempt,
-                  output: serializeError(error),
+                  output: lastStreamedOutput || serializeError(error),
                 },
               );
               continue;
@@ -1094,21 +1204,36 @@ export async function runOrchestration(
       { input: synthesisInput },
     );
 
+    let synthesisChunkSequence = 0;
     const synthesisResult = await executor.synthesize({
       request,
       plan,
       workerReports,
       prompt: synthesisInput,
       abortSignal: runSignal,
+      onChunk: async (chunk, aggregate, meta) => {
+        synthesisChunkSequence += 1;
+        await emitNodeChunk(
+          emit,
+          runId,
+          "dispatcher",
+          "synthesis",
+          "Synthesizing final answer",
+          "Dispatcher is streaming the merged response.",
+          synthesisChunkSequence,
+          synthesisInput,
+          chunk,
+          aggregate,
+          meta,
+        );
+      },
     });
 
     await emitProviderWarning(emit, runId, "dispatcher", synthesisResult.meta);
 
     await emit({
+      ...eventBase(runId),
       type: "final-response",
-      eventId: createId("evt"),
-      runId,
-      timestamp: now(),
       nodeId: "dispatcher",
       response: synthesisResult.text,
       input: synthesisInput,
@@ -1117,10 +1242,8 @@ export async function runOrchestration(
     });
 
     await emit({
+      ...eventBase(runId),
       type: "run-complete",
-      eventId: createId("evt"),
-      runId,
-      timestamp: now(),
       nodeId: "dispatcher",
       message: "All orchestration steps completed successfully.",
     });
@@ -1141,10 +1264,8 @@ export async function runOrchestration(
       );
 
       await emit({
+        ...eventBase(runId),
         type: "run-cancelled",
-        eventId: createId("evt"),
-        runId,
-        timestamp: now(),
         nodeId: "dispatcher",
         errorCode: "run-cancelled",
         message,
@@ -1173,10 +1294,8 @@ export async function runOrchestration(
     );
 
     await emit({
+      ...eventBase(runId),
       type: "run-error",
-      eventId: createId("evt"),
-      runId,
-      timestamp: now(),
       nodeId,
       errorCode,
       message,

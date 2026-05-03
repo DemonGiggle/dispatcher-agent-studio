@@ -1,4 +1,8 @@
-import { orchestrationRequestSchema, type OrchestrationEvent } from "@/lib/types";
+import {
+  ORCHESTRATION_EVENT_SCHEMA_VERSION,
+  orchestrationRequestSchema,
+  type OrchestrationEvent,
+} from "@/lib/types";
 import { runOrchestration } from "@/lib/orchestrator";
 
 export const runtime = "nodejs";
@@ -42,6 +46,16 @@ function sanitizeEvent(event: OrchestrationEvent): OrchestrationEvent {
       nextEvent.summary = truncateText(nextEvent.summary);
       nextEvent.input = truncateText(nextEvent.input);
       nextEvent.output = truncateText(nextEvent.output);
+      return nextEvent;
+    case "task-assignment":
+      nextEvent.detail = truncateText(nextEvent.detail);
+      return nextEvent;
+    case "node-chunk":
+      nextEvent.title = truncateText(nextEvent.title);
+      nextEvent.detail = truncateText(nextEvent.detail);
+      nextEvent.input = truncateText(nextEvent.input);
+      nextEvent.chunk = truncateText(nextEvent.chunk);
+      nextEvent.aggregate = truncateText(nextEvent.aggregate);
       return nextEvent;
     case "agent-result":
       nextEvent.input = truncateText(nextEvent.input);
@@ -107,6 +121,7 @@ export async function POST(request: Request): Promise<Response> {
       });
     } catch (error) {
       await writeEvent({
+        schemaVersion: ORCHESTRATION_EVENT_SCHEMA_VERSION,
         type: "run-error",
         eventId: createId("evt"),
         runId: createId("run"),
@@ -124,6 +139,9 @@ export async function POST(request: Request): Promise<Response> {
     headers: {
       "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
+      "X-Orchestration-Event-Schema-Version": String(
+        ORCHESTRATION_EVENT_SCHEMA_VERSION,
+      ),
     },
   });
 }

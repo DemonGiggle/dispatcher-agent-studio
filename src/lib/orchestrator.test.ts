@@ -379,4 +379,62 @@ describe("runOrchestration", () => {
       "unsupported-model",
     );
   });
+
+  it("emits versioned assignment and chunk events while work is still running", async () => {
+    const request = createRequest();
+    request.agents = request.agents.slice(0, 1);
+
+    const plan: DispatcherPlan = {
+      summary: "Single task with streamed output.",
+      tasks: [
+        {
+          id: "task-1",
+          agentId: request.agents[0].id,
+          title: "Stream a specialist draft",
+          objective: "Produce a report in multiple chunks.",
+          expectedOutput: "A streamed specialist report.",
+          dependsOn: [],
+        },
+      ],
+      synthesisFocus: ["Preserve the streamed output trail."],
+    };
+
+    const executor: OrchestrationExecutor = {
+      async generatePlan() {
+        return { plan, meta: mockMeta };
+      },
+      async executeTask({ onChunk }) {
+        await onChunk?.("Alpha ", "Alpha ", mockMeta);
+        await onChunk?.("Beta", "Alpha Beta", mockMeta);
+        return { text: "Alpha Beta", meta: mockMeta };
+      },
+      async synthesize({ onChunk }) {
+        await onChunk?.("Final ", "Final ", mockMeta);
+        await onChunk?.("answer", "Final answer", mockMeta);
+        return { text: "Final answer", meta: mockMeta };
+      },
+    };
+
+    const { events, result } = await collectEvents(request, executor);
+    const assignmentEvent = events.find((event) => event.type === "task-assignment");
+    const taskChunks = events.filter(
+      (event) => event.type === "node-chunk" && event.phase === "task",
+    );
+    const synthesisChunks = events.filter(
+      (event) => event.type === "node-chunk" && event.phase === "synthesis",
+    );
+
+    expect(result).toBe("Final answer");
+    expect(assignmentEvent && assignmentEvent.type === "task-assignment"
+      ? assignmentEvent.task.id
+      : "").toBe("task-1");
+    expect(taskChunks).toHaveLength(2);
+    expect(
+      taskChunks[1] && taskChunks[1].type === "node-chunk"
+        ? taskChunks[1].aggregate
+        : "",
+    ).toBe("Alpha Beta");
+    expect(synthesisChunks).toHaveLength(2);
+    expect(events.every((event) => event.schemaVersion === 2)).toBe(true);
+  });
 });

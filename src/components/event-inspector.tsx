@@ -17,6 +17,10 @@ function formatEventHeading(event: OrchestrationEvent): string {
       return `${event.status}: ${event.title}`;
     case "dispatcher-plan":
       return "Dispatcher plan";
+    case "task-assignment":
+      return `Task assigned: ${event.task.title}`;
+    case "node-chunk":
+      return `${event.phase} chunk #${event.sequence}`;
     case "agent-result":
       return `Agent result: ${event.task.title}`;
     case "final-response":
@@ -40,6 +44,10 @@ function eventSummary(event: OrchestrationEvent): string {
       return event.detail;
     case "dispatcher-plan":
       return event.summary;
+    case "task-assignment":
+      return `${event.detail}\n\n${event.task.objective}`;
+    case "node-chunk":
+      return event.chunk;
     case "agent-result":
       return event.output;
     case "final-response":
@@ -186,14 +194,17 @@ export function EventInspector({
                           {getEventErrorCode(event)}
                         </span>
                       ) : null}
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                        v{event.schemaVersion}
+                      </span>
                     </div>
                     <time className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
                       {new Date(event.timestamp).toLocaleTimeString()}
                     </time>
                   </div>
-                  <p className="line-clamp-6 text-xs text-slate-400">
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-slate-400">
                     {eventSummary(event)}
-                  </p>
+                  </pre>
                 </article>
               ))
             )}
