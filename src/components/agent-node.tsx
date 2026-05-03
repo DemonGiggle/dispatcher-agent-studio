@@ -113,6 +113,15 @@ export function AgentNode({ id, data }: NodeProps<AgentGraphNode>) {
             />
           </div>
 
+          {data.latestOutput ? (
+            <div className="rounded-xl border border-white/8 bg-white/4 p-2.5">
+              <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                Latest output
+              </p>
+              <p className="line-clamp-4 text-slate-300">{data.latestOutput}</p>
+            </div>
+          ) : null}
+
           {data.errorCode ? (
             <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-2.5 text-rose-100">
               <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-rose-200/80">

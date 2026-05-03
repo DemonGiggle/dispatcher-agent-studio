@@ -3,6 +3,7 @@ import { z } from "zod";
 export const providerIds = ["mock", "openai", "anthropic", "google"] as const;
 
 export type ProviderId = (typeof providerIds)[number];
+export const ORCHESTRATION_EVENT_SCHEMA_VERSION = 2;
 export type OrchestrationErrorCode =
   | "invalid-json"
   | "invalid-request"
@@ -124,10 +125,13 @@ export type ProviderExecutionMeta = {
 };
 
 type EventBase = {
+  schemaVersion: typeof ORCHESTRATION_EVENT_SCHEMA_VERSION;
   eventId: string;
   runId: string;
   timestamp: string;
 };
+
+export type NodeExecutionPhase = "planning" | "task" | "synthesis";
 
 export type RunStartEvent = EventBase & {
   type: "run-start";
@@ -158,6 +162,29 @@ export type DispatcherPlanEvent = EventBase & {
   synthesisFocus: string[];
   input: string;
   output: string;
+  provider: ProviderExecutionMeta;
+};
+
+export type TaskAssignmentEvent = EventBase & {
+  type: "task-assignment";
+  nodeId: string;
+  dispatcherId: "dispatcher";
+  task: PlanTask;
+  detail: string;
+};
+
+export type NodeChunkEvent = EventBase & {
+  type: "node-chunk";
+  nodeId: string;
+  phase: NodeExecutionPhase;
+  title: string;
+  detail: string;
+  sequence: number;
+  taskId?: string;
+  attempt?: number;
+  input: string;
+  chunk: string;
+  aggregate: string;
   provider: ProviderExecutionMeta;
 };
 
@@ -212,6 +239,8 @@ export type OrchestrationEvent =
   | RunStartEvent
   | NodeStatusEvent
   | DispatcherPlanEvent
+  | TaskAssignmentEvent
+  | NodeChunkEvent
   | AgentResultEvent
   | FinalResponseEvent
   | ProviderWarningEvent

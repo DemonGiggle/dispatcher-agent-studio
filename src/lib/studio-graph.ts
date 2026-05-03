@@ -142,6 +142,37 @@ export function deriveRunSnapshot(
       continue;
     }
 
+    if (event.type === "task-assignment") {
+      const snapshot = nodeSnapshots[event.nodeId];
+
+      if (!snapshot) {
+        continue;
+      }
+
+      snapshot.status = "queued";
+      snapshot.currentTask = event.task.title;
+      snapshot.detail = event.detail;
+      continue;
+    }
+
+    if (event.type === "node-chunk") {
+      const snapshot = nodeSnapshots[event.nodeId];
+
+      if (!snapshot) {
+        continue;
+      }
+
+      snapshot.status = event.phase === "synthesis" ? "synthesizing" : "running";
+      snapshot.currentTask = event.title;
+      snapshot.detail = event.detail;
+      snapshot.latestInput = event.input;
+      snapshot.latestOutput = event.aggregate;
+      snapshot.providerMeta = event.provider;
+      snapshot.provider = event.provider.effectiveProvider;
+      snapshot.model = event.provider.effectiveModel;
+      continue;
+    }
+
     if (event.type === "dispatcher-plan") {
       const snapshot = nodeSnapshots.dispatcher;
       tasks = event.tasks;

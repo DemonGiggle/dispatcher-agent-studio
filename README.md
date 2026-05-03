@@ -63,3 +63,25 @@ npm run start
 3. Each **worker agent** executes its assigned task and returns a specialist report.
 4. The dispatcher **synthesizes** the worker outputs into one final response.
 5. The UI streams and visualizes each step as **graph state + event history**.
+
+## Event stream schema
+
+`/api/orchestrate` emits NDJSON events with schema version `2` in both the
+`schemaVersion` field on every event and the
+`X-Orchestration-Event-Schema-Version` response header.
+
+Core event types:
+
+- `run-start`
+- `dispatcher-plan`
+- `task-assignment`
+- `node-status`
+- `node-chunk`
+- `agent-result`
+- `final-response`
+- `provider-warning`
+- `run-complete`, `run-cancelled`, `run-error`
+
+`node-chunk` preserves the raw chunk plus the aggregated output-so-far so the
+UI can render live partial dispatcher and worker responses before the run
+finishes.
