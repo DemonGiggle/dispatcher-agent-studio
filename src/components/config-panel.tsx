@@ -16,6 +16,7 @@ import {
   agentTemplates,
   type AgentValidationIssue,
 } from "@/lib/agent-builder";
+import type { SavedTeamRecord } from "@/lib/studio-persistence";
 import {
   getDefaultProviderHealth,
   getDefaultModel,
@@ -49,6 +50,10 @@ type ConfigPanelProps = {
   onResetDefaults: () => void;
   providerHealthById: Record<ProviderId, ProviderHealthEntry>;
   validationIssues: AgentValidationIssue[];
+  savedTeams: SavedTeamRecord[];
+  onSaveCurrentTeam: (name: string) => void;
+  onLoadSavedTeam: (teamId: string) => void;
+  onDeleteSavedTeam: (teamId: string) => void;
 };
 
 type FieldProps = {
@@ -201,7 +206,12 @@ export function ConfigPanel({
   onResetDefaults,
   providerHealthById,
   validationIssues,
+  savedTeams,
+  onSaveCurrentTeam,
+  onLoadSavedTeam,
+  onDeleteSavedTeam,
 }: ConfigPanelProps) {
+  const [teamNameDraft, setTeamNameDraft] = useState("");
   const dispatcherProviderEntry = getProviderEntry(dispatcher.provider);
   const dispatcherModels = getProviderModels(dispatcher.provider);
   const dispatcherModelEntry = getModelEntry(dispatcher.provider, dispatcher.model);
@@ -396,6 +406,91 @@ export function ConfigPanel({
             <Plus className="h-3.5 w-3.5" />
             Add custom agent
           </button>
+        </div>
+
+        <div className="mb-4 rounded-2xl border border-white/10 bg-white/4 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                Saved teams
+              </p>
+              <p className="mt-1 text-sm text-slate-300">
+                Save the current dispatcher + agent setup and reload it later.
+              </p>
+            </div>
+            <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300">
+              {savedTeams.length} saved
+            </div>
+          </div>
+
+          <div className="mb-3 flex gap-2">
+            <input
+              className={inputClassName()}
+              value={teamNameDraft}
+              onChange={(event) => setTeamNameDraft(event.target.value)}
+              placeholder="Name this team"
+              disabled={disabled}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const nextName = teamNameDraft.trim();
+
+                if (!nextName) {
+                  return;
+                }
+
+                onSaveCurrentTeam(nextName);
+                setTeamNameDraft("");
+              }}
+              disabled={disabled || teamNameDraft.trim().length === 0}
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Save current team
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {savedTeams.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/10 bg-slate-900/40 p-3 text-sm text-slate-400">
+                No saved teams yet. Save a team once and it will be available after refresh.
+              </div>
+            ) : (
+              savedTeams.map((team) => (
+                <div
+                  key={team.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/60 p-3"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-slate-100">{team.name}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {team.agents.filter((agent) => agent.enabled).length}/
+                      {team.agents.length} active agents ·{" "}
+                      {new Date(team.savedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onLoadSavedTeam(team.id)}
+                      disabled={disabled}
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Load
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteSavedTeam(team.id)}
+                      disabled={disabled}
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-rose-400/30 hover:bg-rose-400/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         {teamIssues.length > 0 ? (
