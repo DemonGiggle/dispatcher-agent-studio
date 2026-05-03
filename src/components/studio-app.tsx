@@ -37,6 +37,11 @@ import {
   type SavedRunRecord,
   type SavedTeamRecord,
 } from "@/lib/studio-persistence";
+import {
+  createReplaySlice,
+  findRunRecord,
+  getReplaySelection,
+} from "@/lib/run-history";
 import { deriveRunSnapshot } from "@/lib/studio-graph";
 import type {
   AgentConfig,
@@ -177,12 +182,30 @@ export function StudioApp() {
   const [savedTeams, setSavedTeams] = useState<SavedTeamRecord[]>([]);
   const [recentRuns, setRecentRuns] = useState<SavedRunRecord[]>([]);
   const [hasLoadedPersistence, setHasLoadedPersistence] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string>();
+  const [replayCursor, setReplayCursor] = useState<number | null>(null);
+  const [isReplayPlaying, setIsReplayPlaying] = useState(false);
   const enabledAgents = useMemo(() => getEnabledAgents(agents), [agents]);
   const teamValidationIssues = useMemo(() => validateAgentTeam(agents), [agents]);
+  const activeRun = useMemo(
+    () => findRunRecord(recentRuns, activeRunId),
+    [activeRunId, recentRuns],
+  );
+  const displayedEvents = useMemo(
+    () =>
+      activeRun && replayCursor !== null
+        ? createReplaySlice(activeRun.events, replayCursor)
+        : events,
+    [activeRun, events, replayCursor],
+  );
+  const displayStatusText =
+    activeRun && replayCursor !== null
+      ? `Replay ${Math.min(replayCursor, activeRun.events.length)}/${activeRun.events.length} · ${activeRun.title}`
+      : statusText;
 
   const snapshot = useMemo(
-    () => deriveRunSnapshot(dispatcher, enabledAgents, events),
-    [dispatcher, enabledAgents, events],
+    () => deriveRunSnapshot(dispatcher, enabledAgents, displayedEvents),
+    [dispatcher, displayedEvents, enabledAgents],
   );
 
   useEffect(() => {
@@ -264,6 +287,44 @@ export function StudioApp() {
     recentRuns,
     savedTeams,
   ]);
+
+  useEffect(() => {
+    if (!activeRun || replayCursor === null || !isReplayPlaying) {
+      return;
+    }
+
+    if (replayCursor >= activeRun.events.length) {
+      queueMicrotask(() => {
+        setIsReplayPlaying(false);
+      });
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setReplayCursor((current) => {
+        if (current === null) {
+          return current;
+        }
+
+        return Math.min(current + 1, activeRun.events.length);
+      });
+    }, 320);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeRun, isReplayPlaying, replayCursor]);
+
+  useEffect(() => {
+    if (!activeRun || replayCursor === null) {
+      return;
+    }
+
+    const selection = getReplaySelection(displayedEvents);
+
+    queueMicrotask(() => {
+      setSelectedNodeId(selection.nodeId);
+      setSelectedTaskId(selection.taskId);
+    });
+  }, [activeRun, displayedEvents, replayCursor]);
 
   const handleDispatcherChange = <K extends keyof DispatcherConfig>(
     field: K,
@@ -401,6 +462,9 @@ export function StudioApp() {
     setSelectedNodeId("dispatcher");
     setSelectedTaskId(undefined);
     setStatusText(`Loaded team "${savedTeam.name}".`);
+    setActiveRunId(undefined);
+    setReplayCursor(null);
+    setIsReplayPlaying(false);
     setRunAlert({
       tone: "info",
       title: "Team loaded",
@@ -446,6 +510,9 @@ export function StudioApp() {
     setErrorText(undefined);
     setRunAlert(undefined);
     setIsRunning(false);
+    setActiveRunId(undefined);
+    setReplayCursor(null);
+    setIsReplayPlaying(false);
   };
 
   const handleSubmit = async () => {
@@ -483,6 +550,9 @@ export function StudioApp() {
     setSelectedNodeId("dispatcher");
     setSelectedTaskId(undefined);
     setIsRunning(true);
+    setActiveRunId(undefined);
+    setReplayCursor(null);
+    setIsReplayPlaying(false);
 
     let finalResponse: string | undefined;
     let runStatus: SavedRunRecord["status"] = "completed";
@@ -596,6 +666,7 @@ export function StudioApp() {
             events: collectedEvents,
           }),
         );
+        setActiveRunId(runId);
       }
 
       setIsRunning(false);
@@ -623,6 +694,45 @@ export function StudioApp() {
       detail: `Reopened "${run.title}" with its conversation and graph state.`,
     });
     setIsRunning(false);
+    setActiveRunId(run.id);
+    setReplayCursor(null);
+    setIsReplayPlaying(false);
+  };
+
+  const handleReplaySeek = (nextCursor: number) => {
+    if (!activeRun) {
+      return;
+    }
+
+    const clampedCursor = Math.max(0, Math.min(nextCursor, activeRun.events.length));
+    const replayEvents = createReplaySlice(activeRun.events, clampedCursor);
+    const selection = getReplaySelection(replayEvents);
+
+    setReplayCursor(clampedCursor);
+    setIsReplayPlaying(false);
+    setSelectedNodeId(selection.nodeId);
+    setSelectedTaskId(selection.taskId);
+  };
+
+  const handleReplayToggle = () => {
+    if (!activeRun) {
+      return;
+    }
+
+    if (replayCursor === null || replayCursor >= activeRun.events.length) {
+      handleReplaySeek(1);
+      setIsReplayPlaying(true);
+      return;
+    }
+
+    setIsReplayPlaying((current) => !current);
+  };
+
+  const handleReplayStop = () => {
+    setReplayCursor(null);
+    setIsReplayPlaying(false);
+    setSelectedNodeId("dispatcher");
+    setSelectedTaskId(undefined);
   };
 
   return (
@@ -707,14 +817,20 @@ export function StudioApp() {
             messages={messages}
             samplePrompts={samplePrompts}
             isRunning={isRunning}
-            statusText={statusText}
+            statusText={displayStatusText}
             errorText={errorText}
             alert={runAlert}
             recentRuns={recentRuns}
+            activeRun={activeRun}
+            replayCursor={replayCursor}
+            isReplayPlaying={isReplayPlaying}
             onDraftChange={setDraft}
             onSubmit={handleSubmit}
             onPickPrompt={setDraft}
             onOpenRun={handleOpenRun}
+            onReplaySeek={handleReplaySeek}
+            onReplayToggle={handleReplayToggle}
+            onReplayStop={handleReplayStop}
           />
 
           <div className="space-y-4">
@@ -733,7 +849,7 @@ export function StudioApp() {
             />
             <EventInspector
               snapshot={snapshot}
-              events={events}
+              events={displayedEvents}
               selectedNodeId={selectedNodeId}
               selectedTaskId={selectedTaskId}
             />
