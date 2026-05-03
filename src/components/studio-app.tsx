@@ -25,6 +25,16 @@ import {
   getDefaultProviderHealth,
   type ProviderHealthEntry,
 } from "@/lib/model-catalog";
+import {
+  cloneAgents,
+  cloneDispatcher,
+  cloneMessages as clonePersistedMessages,
+  loadPersistedStudioState,
+  savePersistedStudioState,
+  saveRunRecord,
+  type SavedRunRecord,
+  type SavedTeamRecord,
+} from "@/lib/studio-persistence";
 import { deriveRunSnapshot } from "@/lib/studio-graph";
 import type {
   AgentConfig,
@@ -162,6 +172,9 @@ export function StudioApp() {
     Record<ProviderId, ProviderHealthEntry>
   >(getDefaultProviderHealth);
   const [isRunning, setIsRunning] = useState(false);
+  const [savedTeams, setSavedTeams] = useState<SavedTeamRecord[]>([]);
+  const [recentRuns, setRecentRuns] = useState<SavedRunRecord[]>([]);
+  const [hasLoadedPersistence, setHasLoadedPersistence] = useState(false);
   const enabledAgents = useMemo(() => getEnabledAgents(agents), [agents]);
   const teamValidationIssues = useMemo(() => validateAgentTeam(agents), [agents]);
 
@@ -169,6 +182,32 @@ export function StudioApp() {
     () => deriveRunSnapshot(dispatcher, enabledAgents, events),
     [dispatcher, enabledAgents, events],
   );
+
+  useEffect(() => {
+    const persistedState = loadPersistedStudioState();
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
+
+      if (persistedState.autosavedStudio) {
+        setDispatcher(persistedState.autosavedStudio.dispatcher);
+        setAgents(persistedState.autosavedStudio.agents);
+        setMessages(persistedState.autosavedStudio.messages);
+        setDraft(persistedState.autosavedStudio.draft);
+      }
+
+      setSavedTeams(persistedState.savedTeams);
+      setRecentRuns(persistedState.recentRuns);
+      setHasLoadedPersistence(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -197,6 +236,32 @@ export function StudioApp() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasLoadedPersistence) {
+      return;
+    }
+
+    savePersistedStudioState({
+      schemaVersion: 1,
+      autosavedStudio: {
+        dispatcher: cloneDispatcher(dispatcher),
+        agents: cloneAgents(agents),
+        messages: clonePersistedMessages(messages),
+        draft,
+      },
+      savedTeams,
+      recentRuns,
+    });
+  }, [
+    agents,
+    dispatcher,
+    draft,
+    hasLoadedPersistence,
+    messages,
+    recentRuns,
+    savedTeams,
+  ]);
 
   const handleDispatcherChange = <K extends keyof DispatcherConfig>(
     field: K,
@@ -356,6 +421,11 @@ export function StudioApp() {
     setIsRunning(true);
 
     let finalResponse: string | undefined;
+    let runStatus: SavedRunRecord["status"] = "completed";
+    const collectedEvents: OrchestrationEvent[] = [];
+    const dispatcherSnapshot = cloneDispatcher(dispatcher);
+    const runAgents = cloneAgents(enabledAgents);
+    let persistedMessages = clonePersistedMessages(nextMessages);
 
     try {
       await streamEvents(
@@ -367,6 +437,7 @@ export function StudioApp() {
           runtime,
         },
         (event) => {
+          collectedEvents.push(event);
           setEvents((current) => [...current, event]);
           setStatusText(buildStatusText(event));
 
@@ -392,6 +463,7 @@ export function StudioApp() {
           }
 
           if (event.type === "run-error") {
+            runStatus = "error";
             setErrorText(undefined);
             setRunAlert({
               tone: "error",
@@ -404,6 +476,7 @@ export function StudioApp() {
           }
 
           if (event.type === "run-cancelled") {
+            runStatus = "cancelled";
             setRunAlert({
               tone: "info",
               title: "Run cancelled",
@@ -418,19 +491,21 @@ export function StudioApp() {
 
       if (finalResponse) {
         const assistantMessage = finalResponse;
-
-        setMessages((current) => [
-          ...current,
+        persistedMessages = [
+          ...persistedMessages,
           {
             id: createId("msg"),
             role: "assistant",
             content: assistantMessage,
           },
-        ]);
+        ];
+
+        setMessages(persistedMessages);
       }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unexpected client error.";
+      runStatus = "error";
       setErrorText(undefined);
       setRunAlert({
         tone: "error",
@@ -439,6 +514,26 @@ export function StudioApp() {
       });
       setStatusText(message);
     } finally {
+      if (collectedEvents.length > 0) {
+        const createdAt = collectedEvents[0]?.timestamp ?? new Date().toISOString();
+        const runId = collectedEvents[0]?.runId ?? createId("run");
+
+        setRecentRuns((current) =>
+          saveRunRecord(current, {
+            id: runId,
+            title:
+              prompt.length > 72 ? `${prompt.slice(0, 72).trimEnd()}…` : prompt,
+            prompt,
+            createdAt,
+            status: runStatus,
+            dispatcher: dispatcherSnapshot,
+            agents: runAgents,
+            messages: persistedMessages,
+            events: collectedEvents,
+          }),
+        );
+      }
+
       setIsRunning(false);
     }
   };
