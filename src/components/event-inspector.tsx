@@ -25,6 +25,8 @@ function formatEventHeading(event: OrchestrationEvent): string {
       return "Provider warning";
     case "run-complete":
       return "Run complete";
+    case "run-cancelled":
+      return "Run cancelled";
     case "run-error":
       return "Run error";
   }
@@ -45,7 +47,9 @@ function eventSummary(event: OrchestrationEvent): string {
     case "provider-warning":
       return event.message;
     case "run-complete":
-      return "All orchestration steps finished.";
+      return event.message;
+    case "run-cancelled":
+      return event.message;
     case "run-error":
       return event.message;
   }

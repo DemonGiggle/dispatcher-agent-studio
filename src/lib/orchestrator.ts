@@ -1,19 +1,171 @@
 import {
   dispatcherPlanSchema,
   type AgentConfig,
-  type ConversationMessage,
   type DispatcherPlan,
+  type NodeStatus,
   type OrchestrationEvent,
   type OrchestrationRequest,
+  type OrchestrationRuntimeOptions,
   type PlanTask,
   type ProviderExecutionMeta,
 } from "@/lib/types";
 import {
+  createAbortError,
   generatePlainText,
   generateStructuredObject,
+  isAbortError,
 } from "@/lib/providers";
 
 type EmitEvent = (event: OrchestrationEvent) => Promise<void>;
+
+type WorkerReport = {
+  agent: AgentConfig;
+  task: PlanTask;
+  output: string;
+  attempt: number;
+};
+
+type ExecutorPlanResult = {
+  plan: DispatcherPlan;
+  meta: ProviderExecutionMeta;
+};
+
+type ExecutorTextResult = {
+  text: string;
+  meta: ProviderExecutionMeta;
+};
+
+export type OrchestrationExecutor = {
+  generatePlan(args: {
+    request: OrchestrationRequest;
+    prompt: string;
+    abortSignal: AbortSignal;
+  }): Promise<ExecutorPlanResult>;
+  executeTask(args: {
+    request: OrchestrationRequest;
+    plan: DispatcherPlan;
+    task: PlanTask;
+    agent: AgentConfig;
+    prompt: string;
+    attempt: number;
+    abortSignal: AbortSignal;
+  }): Promise<ExecutorTextResult>;
+  synthesize(args: {
+    request: OrchestrationRequest;
+    plan: DispatcherPlan;
+    workerReports: WorkerReport[];
+    prompt: string;
+    abortSignal: AbortSignal;
+  }): Promise<ExecutorTextResult>;
+};
+
+type RunOrchestrationOptions = {
+  abortSignal?: AbortSignal;
+  executor?: OrchestrationExecutor;
+};
+
+class TaskExecutionError extends Error {
+  constructor(
+    readonly task: PlanTask,
+    readonly agent: AgentConfig,
+    readonly attempt: number,
+    readonly causeMessage: string,
+  ) {
+    super(
+      `Task "${task.title}" for ${agent.name} failed on attempt ${attempt}: ${causeMessage}`,
+    );
+    this.name = "TaskExecutionError";
+  }
+}
+
+class DependencyExecutionError extends Error {
+  constructor(
+    readonly task: PlanTask,
+    readonly dependencyId: string,
+    message: string,
+  ) {
+    super(
+      `Task "${task.title}" could not start because dependency "${dependencyId}" failed: ${message}`,
+    );
+    this.name = "DependencyExecutionError";
+  }
+}
+
+class PlanValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PlanValidationError";
+  }
+}
+
+class Semaphore {
+  private activeCount = 0;
+
+  private readonly queue: Array<{
+    grant: () => void;
+    reject: (error: Error) => void;
+  }> = [];
+
+  constructor(private readonly limit: number) {}
+
+  async use<T>(signal: AbortSignal, callback: () => Promise<T>): Promise<T> {
+    await this.acquire(signal);
+
+    try {
+      return await callback();
+    } finally {
+      this.release();
+    }
+  }
+
+  private acquire(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) {
+      return Promise.reject(getAbortReason(signal, "Run cancelled before task start."));
+    }
+
+    if (this.activeCount < this.limit) {
+      this.activeCount += 1;
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const entry = {
+        grant: () => {
+          signal.removeEventListener("abort", onAbort);
+          this.activeCount += 1;
+          resolve();
+        },
+        reject,
+      };
+
+      const onAbort = () => {
+        this.dequeue(entry);
+        reject(getAbortReason(signal, "Run cancelled while waiting for execution slot."));
+      };
+
+      signal.addEventListener("abort", onAbort, { once: true });
+      this.queue.push(entry);
+    });
+  }
+
+  private release() {
+    this.activeCount -= 1;
+
+    const next = this.queue.shift();
+
+    if (next) {
+      next.grant();
+    }
+  }
+
+  private dequeue(entry: { grant: () => void; reject: (error: Error) => void }) {
+    const index = this.queue.indexOf(entry);
+
+    if (index >= 0) {
+      this.queue.splice(index, 1);
+    }
+  }
+}
 
 function createId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -27,7 +179,7 @@ function trimBlock(text: string, limit = 1_600): string {
   return text.length <= limit ? text : `${text.slice(0, limit)}…`;
 }
 
-function formatConversation(messages: ConversationMessage[]): string {
+function formatConversation(messages: OrchestrationRequest["messages"]): string {
   if (messages.length === 0) {
     return "No prior conversation context.";
   }
@@ -40,25 +192,63 @@ function formatConversation(messages: ConversationMessage[]): string {
     .join("\n\n");
 }
 
-function heuristicPlan(prompt: string, agents: AgentConfig[]): DispatcherPlan {
-  const selectedAgents = agents.slice(0, Math.min(agents.length, 3));
+function serializeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
 
-  return {
-    summary:
-      "Split the request into complementary workstreams so each specialist owns a distinct part of the solution.",
-    tasks: selectedAgents.map((agent, index) => ({
-      id: `task-${index + 1}`,
-      agentId: agent.id,
-      title: `${agent.role}: ${agent.name}`,
-      objective: `Analyze the user request "${trimBlock(prompt, 180)}" from the perspective of ${agent.specialty}.`,
-      expectedOutput: `A concise specialist report focused on ${agent.role.toLowerCase()} decisions, tradeoffs, and recommendations.`,
-    })),
-    synthesisFocus: [
-      "Highlight how the specialist outputs fit together.",
-      "Resolve any tradeoffs between UX, technical design, and scope.",
-      "Return an answer that the user can act on immediately.",
-    ],
-  };
+  if (typeof error === "string" && error.length > 0) {
+    return error;
+  }
+
+  return "Unknown orchestration error.";
+}
+
+function getAbortReason(signal: AbortSignal, fallbackMessage: string): Error {
+  if (signal.reason instanceof Error) {
+    return signal.reason.name === "AbortError"
+      ? signal.reason
+      : createAbortError(signal.reason.message);
+  }
+
+  if (typeof signal.reason === "string" && signal.reason.length > 0) {
+    return createAbortError(signal.reason);
+  }
+
+  return createAbortError(fallbackMessage);
+}
+
+function throwIfAborted(signal: AbortSignal, message: string) {
+  if (signal.aborted) {
+    throw getAbortReason(signal, message);
+  }
+}
+
+function createRunAbortController(externalSignal?: AbortSignal) {
+  const controller = new AbortController();
+
+  if (!externalSignal) {
+    return controller;
+  }
+
+  if (externalSignal.aborted) {
+    controller.abort(
+      getAbortReason(externalSignal, "Run cancelled by the client."),
+    );
+    return controller;
+  }
+
+  externalSignal.addEventListener(
+    "abort",
+    () => {
+      controller.abort(
+        getAbortReason(externalSignal, "Run cancelled by the client."),
+      );
+    },
+    { once: true },
+  );
+
+  return controller;
 }
 
 function chooseAgentForTask(
@@ -89,6 +279,31 @@ function chooseAgentForTask(
   return ranked[0]?.agent ?? agents[0];
 }
 
+function heuristicPlan(prompt: string, agents: AgentConfig[]): DispatcherPlan {
+  const selectedAgents = agents.slice(0, Math.min(agents.length, 3));
+
+  return {
+    summary:
+      "Split the request into complementary workstreams so each specialist owns a distinct part of the solution.",
+    tasks: selectedAgents.map((agent, index) => ({
+      id: `task-${index + 1}`,
+      agentId: agent.id,
+      title: `${agent.role}: ${agent.name}`,
+      objective: `Analyze the user request "${trimBlock(prompt, 180)}" from the perspective of ${agent.specialty}.`,
+      expectedOutput: `A concise specialist report focused on ${agent.role.toLowerCase()} decisions, tradeoffs, and recommendations.`,
+      dependsOn:
+        index === 2
+          ? selectedAgents.slice(0, 2).map((_, dependencyIndex) => `task-${dependencyIndex + 1}`)
+          : [],
+    })),
+    synthesisFocus: [
+      "Highlight how the specialist outputs fit together.",
+      "Resolve any tradeoffs between UX, technical design, and scope.",
+      "Return an answer that the user can act on immediately.",
+    ],
+  };
+}
+
 function normalizePlan(
   plan: DispatcherPlan,
   agents: AgentConfig[],
@@ -98,18 +313,14 @@ function normalizePlan(
     return heuristicPlan(prompt, agents);
   }
 
+  const rawTaskIds = plan.tasks.map((task, index) => task.id || `task-${index + 1}`);
   const usedAgentIds = new Set<string>();
-  const normalizedTasks: PlanTask[] = [];
-
-  for (const [index, task] of plan.tasks.entries()) {
-    if (usedAgentIds.size >= agents.length) {
-      break;
-    }
-
+  const normalizedTasks = plan.tasks.map((task, index) => {
     const assignedAgent = chooseAgentForTask(task, agents, usedAgentIds);
     usedAgentIds.add(assignedAgent.id);
 
-    normalizedTasks.push({
+    return {
+      ...task,
       id: task.id || `task-${index + 1}`,
       agentId: assignedAgent.id,
       title: task.title || `${assignedAgent.role} workstream`,
@@ -118,22 +329,94 @@ function normalizePlan(
         `Analyze the request from the perspective of ${assignedAgent.specialty}.`,
       expectedOutput:
         task.expectedOutput ||
-        `A focused report that the dispatcher can synthesize into the final answer.`,
-    });
-  }
+        "A focused report that the dispatcher can synthesize into the final answer.",
+      dependsOn: task.dependsOn ?? [],
+      _rawTaskId: rawTaskIds[index],
+    };
+  });
 
-  if (normalizedTasks.length === 0) {
-    return heuristicPlan(prompt, agents);
-  }
+  const taskIdMap = new Map(
+    normalizedTasks.map((task) => [task._rawTaskId, task.id] as const),
+  );
 
-  return {
+  const cleanedTasks: PlanTask[] = normalizedTasks.map((task) => ({
+    id: task.id,
+    agentId: task.agentId,
+    title: task.title,
+    objective: task.objective,
+    expectedOutput: task.expectedOutput,
+    dependsOn: [...new Set(task.dependsOn)]
+      .map((dependencyId) => taskIdMap.get(dependencyId) ?? dependencyId)
+      .filter((dependencyId) => dependencyId !== task.id),
+  }));
+
+  const normalizedPlan = {
     summary: plan.summary || "Create a coordinated multi-agent execution plan.",
-    tasks: normalizedTasks,
+    tasks: cleanedTasks,
     synthesisFocus:
       plan.synthesisFocus.length > 0
         ? plan.synthesisFocus
         : ["Merge the agent reports into one coherent answer."],
   };
+
+  assertPlanIsExecutable(normalizedPlan, agents);
+  return normalizedPlan;
+}
+
+function assertPlanIsExecutable(plan: DispatcherPlan, agents: AgentConfig[]) {
+  const taskIds = new Set<string>();
+  const taskById = new Map(plan.tasks.map((task) => [task.id, task] as const));
+  const agentIds = new Set(agents.map((agent) => agent.id));
+
+  for (const task of plan.tasks) {
+    if (taskIds.has(task.id)) {
+      throw new PlanValidationError(`Duplicate task id "${task.id}" in dispatcher plan.`);
+    }
+
+    taskIds.add(task.id);
+
+    if (!agentIds.has(task.agentId)) {
+      throw new PlanValidationError(
+        `Dispatcher assigned task "${task.title}" to unknown agent "${task.agentId}".`,
+      );
+    }
+
+    for (const dependencyId of task.dependsOn) {
+      if (!taskById.has(dependencyId)) {
+        throw new PlanValidationError(
+          `Task "${task.title}" depends on unknown task "${dependencyId}".`,
+        );
+      }
+    }
+  }
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+
+  function visit(taskId: string) {
+    if (visited.has(taskId)) {
+      return;
+    }
+
+    if (visiting.has(taskId)) {
+      throw new PlanValidationError(
+        `Dispatcher plan contains a dependency cycle involving "${taskId}".`,
+      );
+    }
+
+    visiting.add(taskId);
+
+    for (const dependencyId of taskById.get(taskId)?.dependsOn ?? []) {
+      visit(dependencyId);
+    }
+
+    visiting.delete(taskId);
+    visited.add(taskId);
+  }
+
+  for (const task of plan.tasks) {
+    visit(task.id);
+  }
 }
 
 function buildPlanningPrompt(
@@ -143,7 +426,7 @@ function buildPlanningPrompt(
   return [
     "You are dispatching the user's latest request across specialist agents.",
     "Return a plan that uses only the provided agent IDs.",
-    `Use at most ${request.agents.length} tasks and avoid duplicate agent assignments.`,
+    `Use at most ${request.agents.length} tasks and avoid duplicate agent assignments unless the request clearly requires it.`,
     "",
     "Available agents:",
     agentRoster,
@@ -156,6 +439,8 @@ function buildPlanningPrompt(
     "",
     "Plan requirements:",
     "- Each task must have one exact agentId from the roster.",
+    "- Use dependsOn only when a task truly needs an earlier task's output.",
+    "- dependsOn must reference task ids from this plan.",
     "- Keep task scopes non-overlapping.",
     "- Give each task a clear objective and expected output.",
     "- Add synthesisFocus bullets to help the dispatcher write the final reply.",
@@ -167,7 +452,18 @@ function buildAgentPrompt(
   task: PlanTask,
   plan: DispatcherPlan,
   agent: AgentConfig,
+  dependencyReports: WorkerReport[],
 ): string {
+  const dependencySection =
+    dependencyReports.length === 0
+      ? "No dependency reports were required before this task."
+      : dependencyReports
+          .map(
+            ({ agent: dependencyAgent, task: dependencyTask, output }, index) =>
+              `${index + 1}. ${dependencyTask.id} · ${dependencyTask.title} · ${dependencyAgent.name}\n${output}`,
+          )
+          .join("\n\n");
+
   return [
     `You are ${agent.name}, a ${agent.role} specialist.`,
     `Specialty: ${agent.specialty}`,
@@ -176,9 +472,14 @@ function buildAgentPrompt(
     plan.summary,
     "",
     "Assigned task:",
+    `- Task id: ${task.id}`,
     `- Title: ${task.title}`,
     `- Objective: ${task.objective}`,
     `- Expected output: ${task.expectedOutput}`,
+    `- Dependencies: ${task.dependsOn.length === 0 ? "none" : task.dependsOn.join(", ")}`,
+    "",
+    "Dependency reports:",
+    dependencySection,
     "",
     "Conversation context:",
     formatConversation(request.messages),
@@ -196,12 +497,12 @@ function buildAgentPrompt(
 function buildSynthesisPrompt(
   request: OrchestrationRequest,
   plan: DispatcherPlan,
-  workerReports: Array<{ agent: AgentConfig; task: PlanTask; output: string }>,
+  workerReports: WorkerReport[],
 ): string {
   const formattedReports = workerReports
     .map(
       ({ agent, task, output }, index) =>
-        `${index + 1}. ${agent.name} (${agent.role})\nTask: ${task.title}\nReport:\n${output}`,
+        `${index + 1}. ${agent.name} (${agent.role})\nTask: ${task.id} · ${task.title}\nDepends on: ${task.dependsOn.length === 0 ? "none" : task.dependsOn.join(", ")}\nReport:\n${output}`,
     )
     .join("\n\n");
 
@@ -231,12 +532,16 @@ function mockAgentResponse(
   request: OrchestrationRequest,
   task: PlanTask,
   agent: AgentConfig,
+  dependencyReports: WorkerReport[],
 ): string {
   return [
     `${agent.name} reviewed the request with a ${agent.role.toLowerCase()} lens.`,
     "",
     `Task focus: ${task.title}`,
     `Interpretation: ${task.objective}`,
+    dependencyReports.length > 0
+      ? `Referenced dependency reports: ${dependencyReports.map((report) => report.task.id).join(", ")}`
+      : "Referenced dependency reports: none",
     "",
     "Recommendations:",
     `- Anchor the solution around ${agent.specialty.toLowerCase()}.`,
@@ -252,12 +557,12 @@ function mockAgentResponse(
 function mockDispatcherResponse(
   request: OrchestrationRequest,
   plan: DispatcherPlan,
-  reports: Array<{ agent: AgentConfig; task: PlanTask; output: string }>,
+  reports: WorkerReport[],
 ): string {
   const sections = reports
     .map(
       ({ agent, task }) =>
-        `- **${agent.name}** covered **${task.title}** and contributed ${agent.specialty.toLowerCase()}.`,
+        `- **${agent.name}** covered **${task.title}** (depends on: ${task.dependsOn.length === 0 ? "none" : task.dependsOn.join(", ")}) and contributed ${agent.specialty.toLowerCase()}.`,
     )
     .join("\n");
 
@@ -275,20 +580,71 @@ function mockDispatcherResponse(
   ].join("\n");
 }
 
+function createDefaultExecutor(
+  runtime: OrchestrationRuntimeOptions,
+): OrchestrationExecutor {
+  return {
+    async generatePlan({ request, prompt, abortSignal }) {
+      const result = await generateStructuredObject({
+        selection: request.dispatcher,
+        system: request.dispatcher.systemPrompt,
+        prompt,
+        schema: dispatcherPlanSchema,
+        schemaName: "dispatcherPlan",
+        abortSignal,
+        timeoutMs: runtime.dispatcherTimeoutMs,
+        mock: () => heuristicPlan(request.prompt, request.agents),
+      });
+
+      return { plan: result.object, meta: result.meta };
+    },
+    async executeTask({ request, task, agent, prompt, abortSignal }) {
+      const result = await generatePlainText({
+        selection: agent,
+        system: agent.systemPrompt,
+        prompt,
+        abortSignal,
+        timeoutMs: runtime.taskTimeoutMs,
+        mock: () => mockAgentResponse(request, task, agent, []),
+      });
+
+      return {
+        text: result.text,
+        meta: result.meta,
+      };
+    },
+    async synthesize({ request, plan, workerReports, prompt, abortSignal }) {
+      const result = await generatePlainText({
+        selection: request.dispatcher,
+        system: request.dispatcher.systemPrompt,
+        prompt,
+        abortSignal,
+        timeoutMs: runtime.dispatcherTimeoutMs,
+        mock: () => mockDispatcherResponse(request, plan, workerReports),
+      });
+
+      return {
+        text: result.text,
+        meta: result.meta,
+      };
+    },
+  };
+}
+
 async function emitNodeStatus(
   emit: EmitEvent,
   runId: string,
   nodeId: string,
-  status: OrchestrationEvent extends infer T
-    ? T extends { type: "node-status"; status: infer S }
-      ? S
-      : never
-    : never,
+  status: NodeStatus,
   title: string,
   detail: string,
-  input?: string,
-  output?: string,
-  provider?: ProviderExecutionMeta,
+  options: {
+    taskId?: string;
+    attempt?: number;
+    input?: string;
+    output?: string;
+    provider?: ProviderExecutionMeta;
+  } = {},
 ) {
   await emit({
     type: "node-status",
@@ -299,187 +655,418 @@ async function emitNodeStatus(
     status,
     title,
     detail,
-    input,
-    output,
-    provider,
+    taskId: options.taskId,
+    attempt: options.attempt,
+    input: options.input,
+    output: options.output,
+    provider: options.provider,
+  });
+}
+
+async function emitProviderWarning(
+  emit: EmitEvent,
+  runId: string,
+  nodeId: string,
+  meta: ProviderExecutionMeta,
+) {
+  if (!meta.warning) {
+    return;
+  }
+
+  await emit({
+    type: "provider-warning",
+    eventId: createId("evt"),
+    runId,
+    timestamp: now(),
+    nodeId,
+    message: meta.warning,
+    provider: meta,
   });
 }
 
 export async function runOrchestration(
   request: OrchestrationRequest,
   emit: EmitEvent,
-): Promise<string> {
+  options: RunOrchestrationOptions = {},
+): Promise<string | undefined> {
   const runId = createId("run");
-  const agentRoster = request.agents
-    .map(
-      (agent) =>
-        `- id=${agent.id}; name=${agent.name}; role=${agent.role}; specialty=${agent.specialty}; provider=${agent.provider}; model=${agent.model}`,
-    )
-    .join("\n");
+  const runtime = request.runtime;
+  const executor = options.executor ?? createDefaultExecutor(runtime);
+  const runController = createRunAbortController(options.abortSignal);
+  const runSignal = runController.signal;
+  const taskTerminalStates = new Set<string>();
+  const agentById = new Map(request.agents.map((agent) => [agent.id, agent] as const));
 
-  await emit({
-    type: "run-start",
-    eventId: createId("evt"),
-    runId,
-    timestamp: now(),
-    prompt: request.prompt,
-    dispatcherId: "dispatcher",
-    agentIds: request.agents.map((agent) => agent.id),
-  });
+  try {
+    const agentRoster = request.agents
+      .map(
+        (agent) =>
+          `- id=${agent.id}; name=${agent.name}; role=${agent.role}; specialty=${agent.specialty}; provider=${agent.provider}; model=${agent.model}`,
+      )
+      .join("\n");
 
-  const planningInput = buildPlanningPrompt(request, agentRoster);
-
-  await emitNodeStatus(
-    emit,
-    runId,
-    "dispatcher",
-    "planning",
-    "Planning work split",
-    "Dispatcher is decomposing the request and assigning specialists.",
-    planningInput,
-  );
-
-  const planningResult = await generateStructuredObject({
-    selection: request.dispatcher,
-    system: request.dispatcher.systemPrompt,
-    prompt: planningInput,
-    schema: dispatcherPlanSchema,
-    schemaName: "dispatcherPlan",
-    mock: () => heuristicPlan(request.prompt, request.agents),
-  });
-
-  if (planningResult.meta.warning) {
     await emit({
-      type: "provider-warning",
+      type: "run-start",
+      eventId: createId("evt"),
+      runId,
+      timestamp: now(),
+      prompt: request.prompt,
+      dispatcherId: "dispatcher",
+      agentIds: request.agents.map((agent) => agent.id),
+    });
+
+    const planningInput = buildPlanningPrompt(request, agentRoster);
+
+    await emitNodeStatus(
+      emit,
+      runId,
+      "dispatcher",
+      "planning",
+      "Planning work split",
+      "Dispatcher is decomposing the request and assigning specialists.",
+      { input: planningInput },
+    );
+
+    const planningResult = await executor.generatePlan({
+      request,
+      prompt: planningInput,
+      abortSignal: runSignal,
+    });
+
+    await emitProviderWarning(emit, runId, "dispatcher", planningResult.meta);
+
+    const plan = normalizePlan(planningResult.plan, request.agents, request.prompt);
+
+    await emit({
+      type: "dispatcher-plan",
       eventId: createId("evt"),
       runId,
       timestamp: now(),
       nodeId: "dispatcher",
-      message: planningResult.meta.warning,
+      summary: plan.summary,
+      tasks: plan.tasks,
+      synthesisFocus: plan.synthesisFocus,
+      input: planningInput,
+      output: JSON.stringify(plan, null, 2),
       provider: planningResult.meta,
     });
-  }
 
-  const plan = normalizePlan(planningResult.object, request.agents, request.prompt);
+    const semaphore = new Semaphore(runtime.maxParallelTasks);
+    const taskPromises = new Map<string, Promise<WorkerReport>>();
+    const workerReportsById = new Map<string, WorkerReport>();
 
-  await emit({
-    type: "dispatcher-plan",
-    eventId: createId("evt"),
-    runId,
-    timestamp: now(),
-    nodeId: "dispatcher",
-    summary: plan.summary,
-    tasks: plan.tasks,
-    synthesisFocus: plan.synthesisFocus,
-    input: planningInput,
-    output: JSON.stringify(plan, null, 2),
-    provider: planningResult.meta,
-  });
-
-  const workerReports = await Promise.all(
-    plan.tasks.map(async (task) => {
-      const agent = request.agents.find((candidate) => candidate.id === task.agentId);
-
-      if (!agent) {
-        throw new Error(`Unknown agent assignment: ${task.agentId}`);
+    const markCancelledIfNeeded = async (
+      task: PlanTask,
+      detail: string,
+      agentId = task.agentId,
+    ) => {
+      if (taskTerminalStates.has(task.id)) {
+        return;
       }
 
-      const agentInput = buildAgentPrompt(request, task, plan, agent);
+      taskTerminalStates.add(task.id);
+      await emitNodeStatus(
+        emit,
+        runId,
+        agentId,
+        "cancelled",
+        task.title,
+        detail,
+        { taskId: task.id },
+      );
+    };
+
+    const runTask = async (task: PlanTask): Promise<WorkerReport> => {
+      const agent = agentById.get(task.agentId);
+
+      if (!agent) {
+        throw new PlanValidationError(
+          `Task "${task.title}" resolved to missing agent "${task.agentId}".`,
+        );
+      }
+
+      try {
+        const dependencyReports: WorkerReport[] = [];
+
+        for (const dependencyId of task.dependsOn) {
+          try {
+            dependencyReports.push(await taskPromises.get(dependencyId)!);
+          } catch (error) {
+            if (isAbortError(error)) {
+              await markCancelledIfNeeded(
+                task,
+                `Cancelled before execution: ${serializeError(error)}`,
+              );
+              throw error;
+            }
+
+            const dependencyError = new DependencyExecutionError(
+              task,
+              dependencyId,
+              serializeError(error),
+            );
+            await markCancelledIfNeeded(task, dependencyError.message);
+            throw dependencyError;
+          }
+        }
+
+        throwIfAborted(runSignal, `Run cancelled before starting task "${task.title}".`);
+
+        const agentInput = buildAgentPrompt(
+          request,
+          task,
+          plan,
+          agent,
+          dependencyReports,
+        );
+
+        await emitNodeStatus(
+          emit,
+          runId,
+          agent.id,
+          "queued",
+          task.title,
+          task.dependsOn.length === 0
+            ? "Task is ready and waiting for an execution slot."
+            : `Dependencies satisfied (${task.dependsOn.join(", ")}). Waiting for an execution slot.`,
+          {
+            taskId: task.id,
+            input: agentInput,
+          },
+        );
+
+        const maxAttempts = runtime.maxTaskRetries + 1;
+        let lastError: unknown;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          throwIfAborted(
+            runSignal,
+            `Run cancelled while preparing task "${task.title}".`,
+          );
+
+          try {
+            const result = await semaphore.use(runSignal, async () => {
+              await emitNodeStatus(
+                emit,
+                runId,
+                agent.id,
+                "running",
+                task.title,
+                attempt === 1
+                  ? `${agent.name} is executing the assigned task.`
+                  : `${agent.name} is retrying after a previous failure.`,
+                {
+                  taskId: task.id,
+                  attempt,
+                  input: agentInput,
+                },
+              );
+
+              return executor.executeTask({
+                request,
+                plan,
+                task,
+                agent,
+                prompt: agentInput,
+                attempt,
+                abortSignal: runSignal,
+              });
+            });
+
+            await emitProviderWarning(emit, runId, agent.id, result.meta);
+
+            const report = {
+              agent,
+              task,
+              output: result.text,
+              attempt,
+            };
+
+            workerReportsById.set(task.id, report);
+            taskTerminalStates.add(task.id);
+
+            await emit({
+              type: "agent-result",
+              eventId: createId("evt"),
+              runId,
+              timestamp: now(),
+              nodeId: agent.id,
+              task,
+              attempt,
+              input: agentInput,
+              output: result.text,
+              provider: result.meta,
+            });
+
+            return report;
+          } catch (error) {
+            if (isAbortError(error)) {
+              await markCancelledIfNeeded(
+                task,
+                `Execution stopped: ${serializeError(error)}`,
+                agent.id,
+              );
+              throw error;
+            }
+
+            lastError = error;
+
+            if (attempt < maxAttempts) {
+              await emitNodeStatus(
+                emit,
+                runId,
+                agent.id,
+                "queued",
+                task.title,
+                `Attempt ${attempt} failed. Retrying (${attempt + 1}/${maxAttempts}).`,
+                {
+                  taskId: task.id,
+                  attempt,
+                  output: serializeError(error),
+                },
+              );
+              continue;
+            }
+          }
+        }
+
+        const taskError = new TaskExecutionError(
+          task,
+          agent,
+          runtime.maxTaskRetries + 1,
+          serializeError(lastError),
+        );
+
+        taskTerminalStates.add(task.id);
+        await emitNodeStatus(
+          emit,
+          runId,
+          agent.id,
+          "error",
+          task.title,
+          taskError.message,
+          {
+            taskId: task.id,
+            attempt: runtime.maxTaskRetries + 1,
+            output: taskError.causeMessage,
+          },
+        );
+
+        runController.abort(createAbortError(taskError.message));
+        throw taskError;
+      } catch (error) {
+        throw error;
+      }
+    };
+
+    for (const task of plan.tasks) {
+      taskPromises.set(task.id, runTask(task));
+    }
+
+    let workerReports: WorkerReport[];
+
+    try {
+      workerReports = await Promise.all(plan.tasks.map((task) => taskPromises.get(task.id)!));
+    } catch (error) {
+      await Promise.allSettled(Array.from(taskPromises.values()));
+      throw error;
+    }
+
+    const synthesisInput = buildSynthesisPrompt(request, plan, workerReports);
+
+    await emitNodeStatus(
+      emit,
+      runId,
+      "dispatcher",
+      "synthesizing",
+      "Synthesizing final answer",
+      "Dispatcher is merging worker reports into one reply.",
+      { input: synthesisInput },
+    );
+
+    const synthesisResult = await executor.synthesize({
+      request,
+      plan,
+      workerReports,
+      prompt: synthesisInput,
+      abortSignal: runSignal,
+    });
+
+    await emitProviderWarning(emit, runId, "dispatcher", synthesisResult.meta);
+
+    await emit({
+      type: "final-response",
+      eventId: createId("evt"),
+      runId,
+      timestamp: now(),
+      nodeId: "dispatcher",
+      response: synthesisResult.text,
+      input: synthesisInput,
+      output: synthesisResult.text,
+      provider: synthesisResult.meta,
+    });
+
+    await emit({
+      type: "run-complete",
+      eventId: createId("evt"),
+      runId,
+      timestamp: now(),
+      nodeId: "dispatcher",
+      message: "All orchestration steps completed successfully.",
+    });
+
+    return synthesisResult.text;
+  } catch (error) {
+    if (isAbortError(error)) {
+      const message = serializeError(error);
 
       await emitNodeStatus(
         emit,
         runId,
-        agent.id,
-        "running",
-        task.title,
-        `${agent.name} is working on the assigned task.`,
-        agentInput,
+        "dispatcher",
+        "cancelled",
+        "Run cancelled",
+        message,
       );
 
-      const result = await generatePlainText({
-        selection: agent,
-        system: agent.systemPrompt,
-        prompt: agentInput,
-        mock: () => mockAgentResponse(request, task, agent),
-      });
-
-      if (result.meta.warning) {
-        await emit({
-          type: "provider-warning",
-          eventId: createId("evt"),
-          runId,
-          timestamp: now(),
-          nodeId: agent.id,
-          message: result.meta.warning,
-          provider: result.meta,
-        });
-      }
-
       await emit({
-        type: "agent-result",
+        type: "run-cancelled",
         eventId: createId("evt"),
         runId,
         timestamp: now(),
-        nodeId: agent.id,
-        task,
-        input: agentInput,
-        output: result.text,
-        provider: result.meta,
+        nodeId: "dispatcher",
+        message,
       });
 
-      return { agent, task, output: result.text };
-    }),
-  );
+      return undefined;
+    }
 
-  const synthesisInput = buildSynthesisPrompt(request, plan, workerReports);
+    const message = serializeError(error);
+    const nodeId =
+      error instanceof TaskExecutionError
+        ? error.agent.id
+        : error instanceof DependencyExecutionError
+          ? error.task.agentId
+          : "dispatcher";
 
-  await emitNodeStatus(
-    emit,
-    runId,
-    "dispatcher",
-    "synthesizing",
-    "Synthesizing final answer",
-    "Dispatcher is merging worker reports into one reply.",
-    synthesisInput,
-  );
+    await emitNodeStatus(
+      emit,
+      runId,
+      "dispatcher",
+      "error",
+      "Run failed",
+      message,
+    );
 
-  const synthesisResult = await generatePlainText({
-    selection: request.dispatcher,
-    system: request.dispatcher.systemPrompt,
-    prompt: synthesisInput,
-    mock: () => mockDispatcherResponse(request, plan, workerReports),
-  });
-
-  if (synthesisResult.meta.warning) {
     await emit({
-      type: "provider-warning",
+      type: "run-error",
       eventId: createId("evt"),
       runId,
       timestamp: now(),
-      nodeId: "dispatcher",
-      message: synthesisResult.meta.warning,
-      provider: synthesisResult.meta,
+      nodeId,
+      message,
     });
+
+    return undefined;
   }
-
-  await emit({
-    type: "final-response",
-    eventId: createId("evt"),
-    runId,
-    timestamp: now(),
-    nodeId: "dispatcher",
-    response: synthesisResult.text,
-    input: synthesisInput,
-    output: synthesisResult.text,
-    provider: synthesisResult.meta,
-  });
-
-  await emit({
-    type: "run-complete",
-    eventId: createId("evt"),
-    runId,
-    timestamp: now(),
-  });
-
-  return synthesisResult.text;
 }
