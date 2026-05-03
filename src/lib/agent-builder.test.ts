@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { createAgentFromTemplate, getEnabledAgents, validateAgentTeam } from "@/lib/agent-builder";
+import {
+  agentTemplates,
+  createAgentFromTemplate,
+  filterAgentTemplates,
+  getEnabledAgents,
+  validateAgentTeam,
+} from "@/lib/agent-builder";
 import { cloneAgentConfigs } from "@/lib/defaults";
 
 describe("agent builder helpers", () => {
@@ -47,5 +53,22 @@ describe("agent builder helpers", () => {
 
     expect(issues.some((issue) => issue.field === "name")).toBe(true);
     expect(issues.some((issue) => issue.field === "specialty")).toBe(true);
+  });
+
+  it("filters the expanded template catalog by category and query", () => {
+    const embeddedTemplates = filterAgentTemplates(agentTemplates, {
+      category: "Embedded Engineer",
+    });
+
+    expect(embeddedTemplates.map((template) => template.label)).toEqual(
+      expect.arrayContaining(["DataSheet Consultant", "Arm Consultant"]),
+    );
+
+    const armTemplates = filterAgentTemplates(agentTemplates, {
+      category: "Embedded Engineer",
+      query: "arm",
+    });
+
+    expect(armTemplates.map((template) => template.label)).toEqual(["Arm Consultant"]);
   });
 });
