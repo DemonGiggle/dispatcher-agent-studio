@@ -113,9 +113,26 @@ export function AgentNode({ id, data }: NodeProps<AgentGraphNode>) {
             />
           </div>
 
+          {data.errorCode ? (
+            <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-2.5 text-rose-100">
+              <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-rose-200/80">
+                Error code
+              </p>
+              <p className="font-medium">{data.errorCode}</p>
+            </div>
+          ) : null}
+
           {data.warnings.length > 0 ? (
             <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-2.5 text-amber-100">
-              {data.warnings[data.warnings.length - 1]}
+              <p className="mb-1 text-[10px] uppercase tracking-[0.2em] text-amber-200/80">
+                Warning
+              </p>
+              <p>{data.warnings[data.warnings.length - 1]}</p>
+              {data.warningCodes.length > 0 ? (
+                <p className="mt-2 font-medium">
+                  {data.warningCodes[data.warningCodes.length - 1]}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>

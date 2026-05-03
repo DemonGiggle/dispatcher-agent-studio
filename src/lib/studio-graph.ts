@@ -2,6 +2,7 @@ import type {
   AgentConfig,
   DispatcherConfig,
   NodeStatus,
+  OrchestrationErrorCode,
   OrchestrationEvent,
   PlanTask,
   ProviderExecutionMeta,
@@ -21,6 +22,8 @@ export type NodeSnapshot = {
   latestInput?: string;
   latestOutput?: string;
   warnings: string[];
+  warningCodes: OrchestrationErrorCode[];
+  errorCode?: OrchestrationErrorCode;
   providerMeta?: ProviderExecutionMeta;
 };
 
@@ -42,6 +45,7 @@ function createUserSnapshot(): NodeSnapshot {
     currentTask: "Waiting for input",
     detail: "Submit a prompt to start the run.",
     warnings: [],
+    warningCodes: [],
   };
 }
 
@@ -58,6 +62,7 @@ function createDispatcherSnapshot(dispatcher: DispatcherConfig): NodeSnapshot {
     currentTask: "Ready to route work",
     detail: "Breaks down requests and synthesizes specialist reports.",
     warnings: [],
+    warningCodes: [],
   };
 }
 
@@ -74,6 +79,7 @@ function createAgentSnapshot(agent: AgentConfig): NodeSnapshot {
     currentTask: agent.specialty,
     detail: agent.specialty,
     warnings: [],
+    warningCodes: [],
   };
 }
 
@@ -112,6 +118,7 @@ export function deriveRunSnapshot(
       snapshot.status = event.status;
       snapshot.currentTask = event.title;
       snapshot.detail = event.detail;
+      snapshot.errorCode = event.errorCode;
       snapshot.latestInput = event.input;
       snapshot.latestOutput = event.output;
       snapshot.providerMeta = event.provider;
@@ -126,6 +133,9 @@ export function deriveRunSnapshot(
       }
 
       snapshot.warnings = [...snapshot.warnings, event.message];
+      snapshot.warningCodes = event.errorCode
+        ? [...snapshot.warningCodes, event.errorCode]
+        : snapshot.warningCodes;
       snapshot.providerMeta = event.provider;
       snapshot.provider = event.provider.effectiveProvider;
       snapshot.model = event.provider.effectiveModel;
@@ -182,6 +192,7 @@ export function deriveRunSnapshot(
       snapshot.status = "cancelled";
       snapshot.currentTask = "Run cancelled";
       snapshot.detail = event.message;
+      snapshot.errorCode = event.errorCode;
       continue;
     }
 
@@ -195,6 +206,7 @@ export function deriveRunSnapshot(
       snapshot.status = "error";
       snapshot.currentTask = "Run failed";
       snapshot.detail = event.message;
+      snapshot.errorCode = event.errorCode;
     }
   }
 

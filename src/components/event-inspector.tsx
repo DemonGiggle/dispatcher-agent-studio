@@ -1,7 +1,7 @@
 "use client";
 
 import type { GraphSnapshot } from "@/lib/studio-graph";
-import type { OrchestrationEvent } from "@/lib/types";
+import type { OrchestrationErrorCode, OrchestrationEvent } from "@/lib/types";
 
 type EventInspectorProps = {
   snapshot: GraphSnapshot;
@@ -53,6 +53,16 @@ function eventSummary(event: OrchestrationEvent): string {
     case "run-error":
       return event.message;
   }
+}
+
+function getEventErrorCode(
+  event: OrchestrationEvent,
+): OrchestrationErrorCode | undefined {
+  if ("errorCode" in event) {
+    return event.errorCode;
+  }
+
+  return undefined;
 }
 
 export function EventInspector({
@@ -112,6 +122,20 @@ export function EventInspector({
                   {selectedNode.provider} · {selectedNode.model}
                 </dd>
               </div>
+              {selectedNode.errorCode ? (
+                <div>
+                  <dt className="mb-1 text-slate-500">Error code</dt>
+                  <dd className="text-rose-200">{selectedNode.errorCode}</dd>
+                </div>
+              ) : null}
+              {selectedNode.warningCodes.length > 0 ? (
+                <div>
+                  <dt className="mb-1 text-slate-500">Warning codes</dt>
+                  <dd className="text-amber-200">
+                    {selectedNode.warningCodes.join(", ")}
+                  </dd>
+                </div>
+              ) : null}
             </dl>
           </div>
 
@@ -153,9 +177,16 @@ export function EventInspector({
                   className="rounded-2xl border border-white/10 bg-slate-900/50 p-3"
                 >
                   <div className="mb-1 flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-slate-100">
-                      {formatEventHeading(event)}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium text-slate-100">
+                        {formatEventHeading(event)}
+                      </p>
+                      {getEventErrorCode(event) ? (
+                        <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-rose-200">
+                          {getEventErrorCode(event)}
+                        </span>
+                      ) : null}
+                    </div>
                     <time className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
                       {new Date(event.timestamp).toLocaleTimeString()}
                     </time>

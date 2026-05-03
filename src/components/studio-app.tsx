@@ -19,12 +19,20 @@ import type {
   AgentConfig,
   ConversationMessage,
   DispatcherConfig,
+  OrchestrationErrorCode,
   OrchestrationEvent,
   OrchestrationRequest,
   OrchestrationRuntimeOptions,
 } from "@/lib/types";
 
 const accentPalette = ["#38bdf8", "#7c3aed", "#f97316", "#22c55e", "#ec4899"];
+
+type RunAlert = {
+  tone: "error" | "warning" | "info";
+  title: string;
+  detail: string;
+  code?: OrchestrationErrorCode;
+};
 
 function createId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -68,7 +76,23 @@ async function streamEvents(
   });
 
   if (!response.ok) {
-    throw new Error(await response.text());
+    let message = `Request failed with status ${response.status}.`;
+
+    try {
+      const errorPayload = (await response.json()) as {
+        error?: string;
+        message?: string;
+        errorCode?: string;
+      };
+
+      message = [errorPayload.error, errorPayload.errorCode, errorPayload.message]
+        .filter(Boolean)
+        .join(" · ");
+    } catch {
+      message = await response.text();
+    }
+
+    throw new Error(message);
   }
 
   if (!response.body) {
@@ -116,6 +140,7 @@ export function StudioApp() {
   const [selectedNodeId, setSelectedNodeId] = useState("dispatcher");
   const [statusText, setStatusText] = useState("Ready for a new request.");
   const [errorText, setErrorText] = useState<string>();
+  const [runAlert, setRunAlert] = useState<RunAlert>();
   const [isRunning, setIsRunning] = useState(false);
 
   const snapshot = useMemo(
@@ -183,6 +208,7 @@ export function StudioApp() {
     setSelectedNodeId("dispatcher");
     setStatusText("Ready for a new request.");
     setErrorText(undefined);
+    setRunAlert(undefined);
     setIsRunning(false);
   };
 
@@ -206,6 +232,7 @@ export function StudioApp() {
     setDraft("");
     setEvents([]);
     setErrorText(undefined);
+    setRunAlert(undefined);
     setStatusText("Dispatcher is planning the run...");
     setSelectedNodeId("dispatcher");
     setIsRunning(true);
@@ -235,11 +262,23 @@ export function StudioApp() {
           }
 
           if (event.type === "run-error") {
-            setErrorText(event.message);
+            setErrorText(undefined);
+            setRunAlert({
+              tone: "error",
+              title: "Run failed",
+              detail: event.message,
+              code: event.errorCode,
+            });
             setSelectedNodeId(event.nodeId);
           }
 
           if (event.type === "run-cancelled") {
+            setRunAlert({
+              tone: "info",
+              title: "Run cancelled",
+              detail: event.message,
+              code: event.errorCode,
+            });
             setSelectedNodeId("dispatcher");
           }
         },
@@ -260,7 +299,12 @@ export function StudioApp() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unexpected client error.";
-      setErrorText(message);
+      setErrorText(undefined);
+      setRunAlert({
+        tone: "error",
+        title: "Request failed",
+        detail: message,
+      });
       setStatusText(message);
     } finally {
       setIsRunning(false);
@@ -341,6 +385,7 @@ export function StudioApp() {
             isRunning={isRunning}
             statusText={statusText}
             errorText={errorText}
+            alert={runAlert}
             onDraftChange={setDraft}
             onSubmit={handleSubmit}
             onPickPrompt={setDraft}
