@@ -98,3 +98,16 @@ The current storage key is `dispatcher-agent-studio:v1`. The persistence layer
 uses a top-level `schemaVersion` field and a migration boundary in
 `src/lib/studio-persistence.ts`. New versions should migrate older payloads into
 the latest shape before the app hydrates client state.
+
+## Run history and replay
+
+Saved runs can be reopened directly from the chat panel without rerunning any
+models. When a run is active, the UI now supports:
+
+- browsing the stored run history list
+- reopening a saved run into the chat, graph, and inspector
+- replaying the event log step by step or with playback controls
+- comparing the dispatcher plan, worker reports, and final synthesis side by side
+
+Replay mode is driven entirely from the persisted event log, so the graph and
+inspector rebuild from stored events instead of making another API call.
