@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cloneAgentConfigs,
@@ -37,20 +37,37 @@ function createEvent(
 }
 
 describe("POST /api/orchestrate", () => {
+  const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+  const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
   beforeEach(() => {
     vi.mocked(runOrchestration).mockReset();
+    infoSpy.mockClear();
+    warnSpy.mockClear();
+    errorSpy.mockClear();
+  });
+
+  afterEach(() => {
+    infoSpy.mockClear();
+    warnSpy.mockClear();
+    errorSpy.mockClear();
   });
 
   it("returns an invalid-json error for malformed request bodies", async () => {
     const response = await POST(
       new Request("http://localhost/api/orchestrate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Id": "req-invalid-json",
+        },
         body: "{not valid json",
       }),
     );
 
     expect(response.status).toBe(400);
+    expect(response.headers.get("X-Request-Id")).toBe("req-invalid-json");
     await expect(response.json()).resolves.toMatchObject({
       error: "Invalid JSON payload.",
       errorCode: "invalid-json",
@@ -61,12 +78,16 @@ describe("POST /api/orchestrate", () => {
     const response = await POST(
       new Request("http://localhost/api/orchestrate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Id": "req-invalid-request",
+        },
         body: JSON.stringify({ prompt: "Missing dispatcher and agents" }),
       }),
     );
 
     expect(response.status).toBe(400);
+    expect(response.headers.get("X-Request-Id")).toBe("req-invalid-request");
     await expect(response.json()).resolves.toMatchObject({
       error: "Invalid request payload.",
       errorCode: "invalid-request",
@@ -100,13 +121,18 @@ describe("POST /api/orchestrate", () => {
     const response = await POST(
       new Request("http://localhost/api/orchestrate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Id": "req-stream",
+        },
         body: JSON.stringify(createValidPayload()),
       }),
     );
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("application/x-ndjson");
+    expect(response.headers.get("X-Request-Id")).toBe("req-stream");
+    expect(response.headers.get("X-Run-Id")).toMatch(/^run-/);
     expect(response.headers.get("X-Orchestration-Event-Schema-Version")).toBe("2");
 
     const lines = (await response.text())
@@ -120,6 +146,9 @@ describe("POST /api/orchestrate", () => {
       "[truncated 51 chars]",
     );
     expect(vi.mocked(runOrchestration)).toHaveBeenCalledOnce();
+    expect(vi.mocked(runOrchestration).mock.calls[0]?.[2]).toMatchObject({
+      runId: expect.stringMatching(/^run-/),
+    });
   });
 
   it("emits a run-error event when orchestration throws unexpectedly", async () => {
@@ -128,11 +157,16 @@ describe("POST /api/orchestrate", () => {
     const response = await POST(
       new Request("http://localhost/api/orchestrate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Id": "req-crash",
+        },
         body: JSON.stringify(createValidPayload()),
       }),
     );
 
+    expect(response.headers.get("X-Request-Id")).toBe("req-crash");
+    expect(response.headers.get("X-Run-Id")).toMatch(/^run-/);
     const lines = (await response.text())
       .trim()
       .split("\n")

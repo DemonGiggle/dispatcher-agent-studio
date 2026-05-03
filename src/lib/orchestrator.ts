@@ -77,6 +77,7 @@ export type OrchestrationExecutor = {
 type RunOrchestrationOptions = {
   abortSignal?: AbortSignal;
   executor?: OrchestrationExecutor;
+  runId?: string;
 };
 
 const MAX_PROMPT_CHARS = 4_000;
@@ -885,7 +886,7 @@ export async function runOrchestration(
   emit: EmitEvent,
   options: RunOrchestrationOptions = {},
 ): Promise<string | undefined> {
-  const runId = createId("run");
+  const runId = options.runId ?? createId("run");
   const runtime = request.runtime;
   const executor = options.executor ?? createDefaultExecutor(runtime);
   const runController = createRunAbortController(options.abortSignal);

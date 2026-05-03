@@ -22,6 +22,17 @@ A TypeScript web app for **dispatcher-led multi-agent LLM orchestration**. The f
 - React Flow (`@xyflow/react`)
 - Zod
 
+## Deployment target
+
+The primary production target is **Vercel**.
+
+Runtime assumptions for production:
+
+- API routes run on the **Node.js runtime**
+- `/api/orchestrate` uses a **60-second max duration** budget
+- The app is otherwise **stateless on the server**; studio state and run history persist in the browser
+- Live provider keys are optional per provider because the app can fall back to the mock provider for local demos and controlled degraded operation
+
 ## Environment variables
 
 Copy the example file and fill in whichever providers you want to use:
@@ -34,9 +45,19 @@ cp .env.example .env.local
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 GOOGLE_GENERATIVE_AI_API_KEY=
+LOG_LEVEL=info
 ```
 
 You can leave keys empty while iterating on the UI. The app will explicitly warn and use the mock provider for that node.
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | No | Enables OpenAI models selected in the dispatcher or worker config |
+| `ANTHROPIC_API_KEY` | No | Enables Anthropic models selected in the dispatcher or worker config |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | No | Enables Google Gemini models selected in the dispatcher or worker config |
+| `LOG_LEVEL` | No | Server log threshold for API routes: `debug`, `info`, `warn`, or `error` |
+
+In production, only set keys for the providers you intend to expose. Missing keys do not crash the app; they produce visible provider warnings and route that node through the mock fallback instead.
 
 ## Run locally
 
@@ -46,6 +67,23 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+## Deploy to Vercel
+
+1. Import the GitHub repository into Vercel.
+2. Keep the project on the default Next.js framework preset.
+3. Set the environment variables you need from the table above.
+4. Deploy once to create a preview environment, then promote to production.
+
+For CLI-based deployment:
+
+```bash
+npm install
+npx vercel
+npx vercel --prod
+```
+
+The repo is already set up for the default Vercel + Next.js flow, so no extra server or database provisioning is required.
 
 ## Available scripts
 
@@ -61,11 +99,85 @@ npm run start
 
 ## Architecture overview
 
-1. The **dispatcher** receives the conversation and latest user prompt.
-2. The dispatcher generates a **structured task plan** with agent assignments.
-3. Each **worker agent** executes its assigned task and returns a specialist report.
-4. The dispatcher **synthesizes** the worker outputs into one final response.
-5. The UI streams and visualizes each step as **graph state + event history**.
+```mermaid
+flowchart LR
+    subgraph Browser["Browser / Next.js client"]
+        UI["StudioApp layout"]
+        Chat["Chat panel"]
+        Config["Config panel"]
+        Graph["Graph panel"]
+        Inspector["Event inspector"]
+        History["Run history & replay"]
+        Storage["localStorage persistence\n(dispatcher-agent-studio:v1)"]
+    end
+
+    subgraph Server["Next.js API routes (Node.js runtime)"]
+        Orchestrate["POST /api/orchestrate\nNDJSON stream\nX-Request-Id / X-Run-Id"]
+        Health["GET /api/health"]
+        ProviderStatus["GET /api/provider-status"]
+    end
+
+    subgraph Core["Server orchestration core"]
+        Validate["Zod request validation\n+ guardrails"]
+        Orchestrator["runOrchestration"]
+        Plan["Dispatcher planning"]
+        Execute["Task scheduling\nretries / parallelism / dependency checks"]
+        Synthesize["Dispatcher synthesis"]
+        Sanitize["Event sanitizing\n+ truncation"]
+        Logs["Structured server logs"]
+    end
+
+    subgraph Models["Provider abstraction"]
+        Registry["Model catalog"]
+        Providers["providers.ts"]
+        OpenAI["OpenAI"]
+        Anthropic["Anthropic"]
+        Google["Google Gemini"]
+        Mock["Mock fallback"]
+    end
+
+    UI --> Chat
+    UI --> Config
+    UI --> Graph
+    UI --> Inspector
+    UI --> History
+    UI <--> Storage
+
+    Chat -->|dispatch request| Orchestrate
+    Config -->|dispatcher + agent settings| Orchestrate
+    History -->|replay saved events| Graph
+    History --> Inspector
+
+    Health --> Registry
+    ProviderStatus --> Registry
+
+    Orchestrate --> Validate
+    Validate --> Orchestrator
+    Orchestrator --> Plan
+    Plan --> Execute
+    Execute --> Synthesize
+    Orchestrator --> Sanitize
+    Orchestrator --> Logs
+
+    Plan --> Providers
+    Execute --> Providers
+    Synthesize --> Providers
+
+    Providers --> Registry
+    Providers --> OpenAI
+    Providers --> Anthropic
+    Providers --> Google
+    Providers --> Mock
+
+    Sanitize -->|streamed events| Chat
+    Sanitize -->|node/task updates| Graph
+    Sanitize -->|selected payloads| Inspector
+    Sanitize -->|persist completed run| History
+```
+
+The flow is dispatcher-first: the client submits the latest prompt plus saved conversation and agent config, `/api/orchestrate` validates the request, the dispatcher generates a task plan, workers execute in parallel with dependency awareness, and the dispatcher synthesizes the final answer.
+
+The same streamed event log drives the chat transcript, graph state, inspector payloads, and replay/history UI. On the server side, provider selection is resolved per node, missing keys degrade to the mock provider with visible warnings, and request/run identifiers tie browser behavior to server logs and operational diagnostics.
 
 ## Event stream schema
 
@@ -122,3 +234,38 @@ The project now includes:
 - Vitest coverage for orchestration, provider fallback, run-history helpers, graph derivation, and the `/api/orchestrate` streaming route
 - Playwright end-to-end coverage for the main config/chat/graph workflow
 - GitHub Actions checks for lint, test, build, and browser-based end-to-end validation on every push and pull request
+
+## Operations baseline
+
+### Health and readiness endpoints
+
+- `/api/health`: deployment/runtime summary plus provider readiness snapshot
+- `/api/provider-status`: provider-specific readiness for the UI and operational checks
+
+Example:
+
+```bash
+curl -s http://localhost:3000/api/health
+```
+
+### Request tracing and logs
+
+`POST /api/orchestrate` now returns:
+
+- `X-Request-Id`: request correlation id, echoed from the incoming header when provided
+- `X-Run-Id`: orchestration run id used for streamed events and server logs
+
+The API emits structured JSON logs for accepted runs, provider fallback warnings, terminal failures, cancellations, and stream closure. This makes it possible to correlate:
+
+1. browser/network errors
+2. streamed orchestration events
+3. server-side logs
+
+with the same request/run identifiers.
+
+### Secrets, limits, and rollback basics
+
+- Keep provider API keys in Vercel project environment variables only; never hardcode them in the repo.
+- Treat `provider-warning`, `provider-rate-limit`, and `provider-auth` events as first-line production diagnostics.
+- Keep provider/model timeouts under the route budget so a slow provider fails explicitly instead of hanging until platform timeout.
+- Roll back by promoting the previous healthy Vercel deployment; the app has no server-side database migrations, so rollback is operationally simple.
