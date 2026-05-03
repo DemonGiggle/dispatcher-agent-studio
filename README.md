@@ -99,11 +99,85 @@ npm run start
 
 ## Architecture overview
 
-1. The **dispatcher** receives the conversation and latest user prompt.
-2. The dispatcher generates a **structured task plan** with agent assignments.
-3. Each **worker agent** executes its assigned task and returns a specialist report.
-4. The dispatcher **synthesizes** the worker outputs into one final response.
-5. The UI streams and visualizes each step as **graph state + event history**.
+```mermaid
+flowchart LR
+    subgraph Browser["Browser / Next.js client"]
+        UI["StudioApp layout"]
+        Chat["Chat panel"]
+        Config["Config panel"]
+        Graph["Graph panel"]
+        Inspector["Event inspector"]
+        History["Run history & replay"]
+        Storage["localStorage persistence\n(dispatcher-agent-studio:v1)"]
+    end
+
+    subgraph Server["Next.js API routes (Node.js runtime)"]
+        Orchestrate["POST /api/orchestrate\nNDJSON stream\nX-Request-Id / X-Run-Id"]
+        Health["GET /api/health"]
+        ProviderStatus["GET /api/provider-status"]
+    end
+
+    subgraph Core["Server orchestration core"]
+        Validate["Zod request validation\n+ guardrails"]
+        Orchestrator["runOrchestration"]
+        Plan["Dispatcher planning"]
+        Execute["Task scheduling\nretries / parallelism / dependency checks"]
+        Synthesize["Dispatcher synthesis"]
+        Sanitize["Event sanitizing\n+ truncation"]
+        Logs["Structured server logs"]
+    end
+
+    subgraph Models["Provider abstraction"]
+        Registry["Model catalog"]
+        Providers["providers.ts"]
+        OpenAI["OpenAI"]
+        Anthropic["Anthropic"]
+        Google["Google Gemini"]
+        Mock["Mock fallback"]
+    end
+
+    UI --> Chat
+    UI --> Config
+    UI --> Graph
+    UI --> Inspector
+    UI --> History
+    UI <--> Storage
+
+    Chat -->|dispatch request| Orchestrate
+    Config -->|dispatcher + agent settings| Orchestrate
+    History -->|replay saved events| Graph
+    History --> Inspector
+
+    Health --> Registry
+    ProviderStatus --> Registry
+
+    Orchestrate --> Validate
+    Validate --> Orchestrator
+    Orchestrator --> Plan
+    Plan --> Execute
+    Execute --> Synthesize
+    Orchestrator --> Sanitize
+    Orchestrator --> Logs
+
+    Plan --> Providers
+    Execute --> Providers
+    Synthesize --> Providers
+
+    Providers --> Registry
+    Providers --> OpenAI
+    Providers --> Anthropic
+    Providers --> Google
+    Providers --> Mock
+
+    Sanitize -->|streamed events| Chat
+    Sanitize -->|node/task updates| Graph
+    Sanitize -->|selected payloads| Inspector
+    Sanitize -->|persist completed run| History
+```
+
+The flow is dispatcher-first: the client submits the latest prompt plus saved conversation and agent config, `/api/orchestrate` validates the request, the dispatcher generates a task plan, workers execute in parallel with dependency awareness, and the dispatcher synthesizes the final answer.
+
+The same streamed event log drives the chat transcript, graph state, inspector payloads, and replay/history UI. On the server side, provider selection is resolved per node, missing keys degrade to the mock provider with visible warnings, and request/run identifiers tie browser behavior to server logs and operational diagnostics.
 
 ## Event stream schema
 
