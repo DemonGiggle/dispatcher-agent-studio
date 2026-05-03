@@ -62,7 +62,7 @@ In production, only set keys for the providers you intend to expose. Missing key
 ## Run locally
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -78,7 +78,7 @@ Open [http://localhost:3000](http://localhost:3000).
 For CLI-based deployment:
 
 ```bash
-npm install
+npm ci
 npx vercel
 npx vercel --prod
 ```
