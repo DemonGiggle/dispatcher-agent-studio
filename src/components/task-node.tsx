@@ -66,7 +66,9 @@ export function TaskNode({ id, data }: NodeProps<TaskGraphNode>) {
       <button
         type="button"
         onClick={() => data.onSelect(id)}
-        className="w-full rounded-2xl border px-4 py-3 text-left transition-transform duration-150 hover:-translate-y-0.5"
+        aria-pressed={data.selected}
+        aria-label={`${data.title}, ${data.agentName}, ${data.status}`}
+        className="w-full rounded-2xl border px-4 py-3 text-left transition-transform duration-150 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 motion-reduce:transform-none motion-reduce:transition-none"
         style={{
           borderColor: data.selected ? data.agentAccent : palette.border,
           background:

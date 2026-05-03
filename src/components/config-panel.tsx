@@ -62,6 +62,9 @@ type FieldProps = {
   children: React.ReactNode;
 };
 
+const focusRingClass =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
+
 function Field({ label, hint, children }: FieldProps) {
   return (
     <label className="block space-y-1.5">
@@ -77,7 +80,7 @@ function Field({ label, hint, children }: FieldProps) {
 }
 
 function inputClassName() {
-  return "w-full rounded-xl border border-white/10 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/10";
+  return "w-full rounded-xl border border-white/10 bg-slate-900/70 px-3 py-2 text-sm text-slate-50 outline-none transition placeholder:text-slate-400 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/10";
 }
 
 function renderProviderHealth(
@@ -182,7 +185,7 @@ function CapabilityEditor({
           type="button"
           onClick={addCapability}
           disabled={disabled || draft.trim().length === 0 || capabilities.length >= 6}
-          className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+          className={`rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
         >
           Add
         </button>
@@ -235,11 +238,16 @@ export function ConfigPanel({
   }, [validationIssues]);
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-[28px] border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-slate-950/30">
+    <section
+      id="config-panel"
+      aria-labelledby="orchestration-setup-heading"
+      tabIndex={-1}
+      className="space-y-4 scroll-mt-4"
+    >
+      <section className="rounded-[28px] border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-slate-950/30">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-50">
+            <h2 id="orchestration-setup-heading" className="text-sm font-semibold text-slate-50">
               Orchestration setup
             </h2>
             <p className="text-xs text-slate-400">
@@ -250,7 +258,7 @@ export function ConfigPanel({
             type="button"
             onClick={onResetDefaults}
             disabled={disabled}
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className={`inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
           >
             <RotateCcw className="h-3.5 w-3.5" />
             Reset
@@ -355,12 +363,17 @@ export function ConfigPanel({
             </Field>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="rounded-[28px] border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-slate-950/30">
+      <section
+        aria-labelledby="agent-builder-heading"
+        className="rounded-[28px] border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-slate-950/30"
+      >
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-50">Agent builder</h2>
+            <h2 id="agent-builder-heading" className="text-sm font-semibold text-slate-50">
+              Agent builder
+            </h2>
             <p className="text-xs text-slate-400">
               Use templates, capability chips, and team controls to shape the active roster.
             </p>
@@ -381,7 +394,7 @@ export function ConfigPanel({
                 type="button"
                 onClick={() => onAddAgentFromTemplate(template.id)}
                 disabled={disabled}
-                className="rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-left transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                className={`rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-left transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
               >
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-slate-100">
@@ -401,7 +414,7 @@ export function ConfigPanel({
             type="button"
             onClick={onAddAgent}
             disabled={disabled}
-            className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className={`mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
           >
             <Plus className="h-3.5 w-3.5" />
             Add custom agent
@@ -423,12 +436,13 @@ export function ConfigPanel({
             </div>
           </div>
 
-          <div className="mb-3 flex gap-2">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row">
             <input
               className={inputClassName()}
               value={teamNameDraft}
               onChange={(event) => setTeamNameDraft(event.target.value)}
               placeholder="Name this team"
+              aria-label="Team name"
               disabled={disabled}
             />
             <button
@@ -444,13 +458,13 @@ export function ConfigPanel({
                 setTeamNameDraft("");
               }}
               disabled={disabled || teamNameDraft.trim().length === 0}
-              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+              className={`rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
             >
               Save current team
             </button>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2" role="list">
             {savedTeams.length === 0 ? (
               <div className="rounded-xl border border-dashed border-white/10 bg-slate-900/40 p-3 text-sm text-slate-400">
                 No saved teams yet. Save a team once and it will be available after refresh.
@@ -459,7 +473,8 @@ export function ConfigPanel({
               savedTeams.map((team) => (
                 <div
                   key={team.id}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/60 p-3"
+                  role="listitem"
+                  className="flex flex-col items-start justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/60 p-3 sm:flex-row sm:items-center"
                 >
                   <div>
                     <p className="text-sm font-medium text-slate-100">{team.name}</p>
@@ -474,7 +489,7 @@ export function ConfigPanel({
                       type="button"
                       onClick={() => onLoadSavedTeam(team.id)}
                       disabled={disabled}
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={`rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
                     >
                       Load
                     </button>
@@ -482,7 +497,7 @@ export function ConfigPanel({
                       type="button"
                       onClick={() => onDeleteSavedTeam(team.id)}
                       disabled={disabled}
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-rose-400/30 hover:bg-rose-400/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={`rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-rose-400/30 hover:bg-rose-400/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
                     >
                       Delete
                     </button>
@@ -494,7 +509,10 @@ export function ConfigPanel({
         </div>
 
         {teamIssues.length > 0 ? (
-          <div className="mb-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 p-4 text-sm text-rose-100">
+          <div
+            role="alert"
+            className="mb-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 p-4 text-sm text-rose-100"
+          >
             <p className="font-medium">Team setup needs attention before a run.</p>
             <ul className="mt-2 space-y-1 text-sm/6">
               {teamIssues.map((issue, index) => (
@@ -514,6 +532,7 @@ export function ConfigPanel({
             return (
               <section
                 key={agent.id}
+                aria-labelledby={`${agent.id}-heading`}
                 className={`rounded-2xl border p-4 ${
                   agent.enabled
                     ? "border-white/10 bg-white/4"
@@ -529,9 +548,9 @@ export function ConfigPanel({
                         style={{ backgroundColor: agent.accent }}
                       />
                       <div>
-                        <p className="text-sm font-semibold text-slate-100">
+                        <h3 id={`${agent.id}-heading`} className="text-sm font-semibold text-slate-100">
                           {agent.name}
-                        </p>
+                        </h3>
                         <div className="mt-1 flex flex-wrap items-center gap-2">
                           <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-slate-300">
                             {agent.role}
@@ -567,7 +586,7 @@ export function ConfigPanel({
                       type="button"
                       onClick={() => onToggleAgent(agent.id)}
                       disabled={disabled}
-                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={`inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
                     >
                       <Power className="h-3.5 w-3.5" />
                       {agent.enabled ? "Disable" : "Enable"}
@@ -576,7 +595,7 @@ export function ConfigPanel({
                       type="button"
                       onClick={() => onDuplicateAgent(agent.id)}
                       disabled={disabled}
-                      className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={`rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
                       aria-label={`Duplicate ${agent.name}`}
                     >
                       <Copy className="h-3.5 w-3.5" />
@@ -585,7 +604,7 @@ export function ConfigPanel({
                       type="button"
                       onClick={() => onMoveAgent(agent.id, "up")}
                       disabled={disabled || index === 0}
-                      className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={`rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
                       aria-label={`Move ${agent.name} up`}
                     >
                       <ArrowUp className="h-3.5 w-3.5" />
@@ -594,7 +613,7 @@ export function ConfigPanel({
                       type="button"
                       onClick={() => onMoveAgent(agent.id, "down")}
                       disabled={disabled || index === agents.length - 1}
-                      className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={`rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
                       aria-label={`Move ${agent.name} down`}
                     >
                       <ArrowDown className="h-3.5 w-3.5" />
@@ -603,7 +622,7 @@ export function ConfigPanel({
                       type="button"
                       onClick={() => onRemoveAgent(agent.id)}
                       disabled={disabled || agents.length === 1}
-                      className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-rose-400/30 hover:bg-rose-400/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={`rounded-full border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:border-rose-400/30 hover:bg-rose-400/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
                       aria-label={`Remove ${agent.name}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -633,7 +652,10 @@ export function ConfigPanel({
                 </div>
 
                 {agentIssues.length > 0 ? (
-                  <div className="mb-4 rounded-xl border border-rose-400/20 bg-rose-400/10 p-3 text-sm text-rose-100">
+                  <div
+                    role="alert"
+                    className="mb-4 rounded-xl border border-rose-400/20 bg-rose-400/10 p-3 text-sm text-rose-100"
+                  >
                     <p className="font-medium">Needs attention</p>
                     <ul className="mt-2 space-y-1 text-sm/6">
                       {agentIssues.map((issue, issueIndex) => (
@@ -775,7 +797,7 @@ export function ConfigPanel({
             );
           })}
         </div>
-      </div>
-    </div>
+      </section>
+    </section>
   );
 }

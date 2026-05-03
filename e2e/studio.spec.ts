@@ -33,3 +33,24 @@ test("runs the main studio workflow and exposes replay controls", async ({ page 
   await page.getByRole("button", { name: "Exit replay" }).click();
   await expect(page.getByText("Full run")).toBeVisible();
 });
+
+test("preserves the main workflow on mobile layouts", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Dispatcher chat" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Agent graph" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Skip to configuration" }).focus();
+  await expect(page.getByRole("link", { name: "Skip to configuration" })).toBeVisible();
+  await page.getByRole("link", { name: "Skip to configuration" }).click();
+  await expect(page.getByRole("heading", { name: "Orchestration setup" })).toBeVisible();
+
+  await page.getByTestId("chat-draft").fill("以手機優先方式檢查多 agent studio 介面");
+  await page.getByTestId("dispatch-button").click();
+
+  await expect(page.getByText("Run replay & comparison")).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByText("Selection summary")).toBeVisible();
+  await expect(page.getByText("Run outline")).toBeVisible();
+});
