@@ -11,7 +11,7 @@ import {
   useNodesState,
 } from "@xyflow/react";
 import { Focus, ScanSearch } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentNode, type AgentGraphNode } from "@/components/agent-node";
 import { TaskNode, type TaskGraphNode } from "@/components/task-node";
@@ -160,9 +160,25 @@ export function GraphPanel({
   ]);
 
   const [flowNodes, setFlowNodes, onFlowNodesChange] = useNodesState<FlowNode>(layoutNodes);
+  const previousLayoutSignatureRef = useRef<string | undefined>(undefined);
+
+  const layoutSignature = useMemo(
+    () => layoutNodes.map((node) => node.id).join("|"),
+    [layoutNodes],
+  );
 
   useEffect(() => {
     setFlowNodes((currentNodes) => {
+      const isStructuralChange =
+        previousLayoutSignatureRef.current !== undefined &&
+        previousLayoutSignatureRef.current !== layoutSignature;
+
+      previousLayoutSignatureRef.current = layoutSignature;
+
+      if (currentNodes.length === 0 || isStructuralChange) {
+        return layoutNodes;
+      }
+
       const currentNodeById = new Map(currentNodes.map((node) => [node.id, node] as const));
 
       return layoutNodes.map((node) => {
@@ -176,12 +192,7 @@ export function GraphPanel({
           : node;
       });
     });
-  }, [layoutNodes, setFlowNodes]);
-
-  const layoutSignature = useMemo(
-    () => layoutNodes.map((node) => node.id).join("|"),
-    [layoutNodes],
-  );
+  }, [layoutNodes, layoutSignature, setFlowNodes]);
 
   useEffect(() => {
     if (!isActive || !flowInstance || flowNodes.length === 0) {

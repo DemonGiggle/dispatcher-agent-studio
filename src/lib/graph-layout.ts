@@ -12,6 +12,7 @@ export type GraphLayout = {
 };
 
 const MAX_GRID_COLUMNS = 3;
+const GRAPH_TOP_Y = 36;
 const TASK_COLUMN_WIDTH = 360;
 const TASK_ROW_HEIGHT = 250;
 const TASK_START_Y = 360;
@@ -19,6 +20,11 @@ const AGENT_COLUMN_WIDTH = 390;
 const AGENT_ROW_HEIGHT = 320;
 const AGENT_SECTION_GAP = 120;
 const MIN_CANVAS_HEIGHT = 420;
+const DISPATCHER_BASE_X = 240;
+const DISPATCHER_COLUMN_SPACING = 220;
+const USER_DISPATCHER_GAP = 380;
+const MIN_USER_X = 30;
+const TASK_CENTER_OFFSET_X = 20;
 
 function getColumnCount(count: number): number {
   return Math.max(1, Math.min(MAX_GRID_COLUMNS, Math.ceil(Math.sqrt(count || 1))));
@@ -55,7 +61,7 @@ export function calculateGraphLayout(taskCount: number, agentCount: number): Gra
   const agentColumns = getColumnCount(agentCount);
   const agentRows = getRowCount(agentCount, agentColumns);
   const widestColumns = Math.max(2, taskColumns, agentColumns);
-  const dispatcherX = 240 + (widestColumns - 1) * 220;
+  const dispatcherX = DISPATCHER_BASE_X + (widestColumns - 1) * DISPATCHER_COLUMN_SPACING;
   const agentStartY =
     taskCount > 0
       ? TASK_START_Y + taskRows * TASK_ROW_HEIGHT + AGENT_SECTION_GAP
@@ -67,17 +73,17 @@ export function calculateGraphLayout(taskCount: number, agentCount: number): Gra
 
   return {
     userPosition: {
-      x: Math.max(30, dispatcherX - 380),
-      y: 36,
+      x: Math.max(MIN_USER_X, dispatcherX - USER_DISPATCHER_GAP),
+      y: GRAPH_TOP_Y,
     },
     dispatcherPosition: {
       x: dispatcherX,
-      y: 36,
+      y: GRAPH_TOP_Y,
     },
     taskPositions: buildCenteredGridPositions(
       taskCount,
       taskColumns,
-      dispatcherX + 20,
+      dispatcherX + TASK_CENTER_OFFSET_X,
       TASK_START_Y,
       TASK_COLUMN_WIDTH,
       TASK_ROW_HEIGHT,
