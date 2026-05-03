@@ -52,6 +52,8 @@ Open [http://localhost:3000](http://localhost:3000).
 npm run dev
 npm run lint
 npm run test
+npx playwright install chromium
+npm run test:e2e
 npm run build
 npm run start
 ```
@@ -111,3 +113,11 @@ models. When a run is active, the UI now supports:
 
 Replay mode is driven entirely from the persisted event log, so the graph and
 inspector rebuild from stored events instead of making another API call.
+
+## Automated test coverage
+
+The project now includes:
+
+- Vitest coverage for orchestration, provider fallback, run-history helpers, graph derivation, and the `/api/orchestrate` streaming route
+- Playwright end-to-end coverage for the main config/chat/graph workflow
+- GitHub Actions checks for lint, test, build, and browser-based end-to-end validation on every push and pull request
