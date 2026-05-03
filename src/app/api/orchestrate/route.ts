@@ -16,14 +16,76 @@ function serializeError(error: unknown): string {
   return "Unknown orchestration error.";
 }
 
+const MAX_EVENT_TEXT_CHARS = 5_000;
+
+function truncateText(value: string): string {
+  if (value.length <= MAX_EVENT_TEXT_CHARS) {
+    return value;
+  }
+
+  return `${value.slice(0, MAX_EVENT_TEXT_CHARS)}… [truncated ${value.length - MAX_EVENT_TEXT_CHARS} chars]`;
+}
+
+function sanitizeEvent(event: OrchestrationEvent): OrchestrationEvent {
+  const nextEvent = structuredClone(event);
+
+  switch (nextEvent.type) {
+    case "run-start":
+      nextEvent.prompt = truncateText(nextEvent.prompt);
+      return nextEvent;
+    case "node-status":
+      nextEvent.detail = truncateText(nextEvent.detail);
+      nextEvent.input = nextEvent.input ? truncateText(nextEvent.input) : nextEvent.input;
+      nextEvent.output = nextEvent.output ? truncateText(nextEvent.output) : nextEvent.output;
+      return nextEvent;
+    case "dispatcher-plan":
+      nextEvent.summary = truncateText(nextEvent.summary);
+      nextEvent.input = truncateText(nextEvent.input);
+      nextEvent.output = truncateText(nextEvent.output);
+      return nextEvent;
+    case "agent-result":
+      nextEvent.input = truncateText(nextEvent.input);
+      nextEvent.output = truncateText(nextEvent.output);
+      return nextEvent;
+    case "final-response":
+      nextEvent.response = truncateText(nextEvent.response);
+      nextEvent.input = truncateText(nextEvent.input);
+      nextEvent.output = truncateText(nextEvent.output);
+      return nextEvent;
+    case "provider-warning":
+      nextEvent.message = truncateText(nextEvent.message);
+      return nextEvent;
+    case "run-cancelled":
+    case "run-error":
+    case "run-complete":
+      nextEvent.message = truncateText(nextEvent.message);
+      return nextEvent;
+  }
+}
+
 export async function POST(request: Request): Promise<Response> {
-  const payload = await request.json();
+  let payload: unknown;
+
+  try {
+    payload = await request.json();
+  } catch (error) {
+    return Response.json(
+      {
+        error: "Invalid JSON payload.",
+        errorCode: "invalid-json",
+        message: serializeError(error),
+      },
+      { status: 400 },
+    );
+  }
+
   const parsed = orchestrationRequestSchema.safeParse(payload);
 
   if (!parsed.success) {
     return Response.json(
       {
         error: "Invalid request payload.",
+        errorCode: "invalid-request",
         issues: parsed.error.flatten(),
       },
       { status: 400 },
@@ -35,7 +97,7 @@ export async function POST(request: Request): Promise<Response> {
   const writer = stream.writable.getWriter();
 
   const writeEvent = async (event: OrchestrationEvent) => {
-    await writer.write(encoder.encode(`${JSON.stringify(event)}\n`));
+    await writer.write(encoder.encode(`${JSON.stringify(sanitizeEvent(event))}\n`));
   };
 
   void (async () => {
@@ -50,6 +112,7 @@ export async function POST(request: Request): Promise<Response> {
         runId: createId("run"),
         timestamp: new Date().toISOString(),
         nodeId: "dispatcher",
+        errorCode: "internal-error",
         message: serializeError(error),
       });
     } finally {

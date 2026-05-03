@@ -9,6 +9,7 @@ import {
   runOrchestration,
   type OrchestrationExecutor,
 } from "@/lib/orchestrator";
+import { ProviderExecutionError } from "@/lib/providers";
 import type {
   DispatcherPlan,
   OrchestrationEvent,
@@ -266,5 +267,90 @@ describe("runOrchestration", () => {
           event.taskId === "task-1",
       ),
     ).toBe(true);
+  });
+
+  it("fails early when request guardrails are exceeded", async () => {
+    const request = createRequest();
+    request.prompt = "x".repeat(4_001);
+
+    const executor: OrchestrationExecutor = {
+      async generatePlan() {
+        throw new Error("generatePlan should not run for invalid requests");
+      },
+      async executeTask() {
+        throw new Error("executeTask should not run for invalid requests");
+      },
+      async synthesize() {
+        throw new Error("synthesize should not run for invalid requests");
+      },
+    };
+
+    const { events, result } = await collectEvents(request, executor);
+    const runError = events.find((event) => event.type === "run-error");
+
+    expect(result).toBeUndefined();
+    expect(runError && runError.type === "run-error" ? runError.errorCode : undefined).toBe(
+      "prompt-too-large",
+    );
+    expect(runError && runError.type === "run-error" ? runError.message : "").toContain(
+      "Keep it under 4000 characters",
+    );
+  });
+
+  it("surfaces classified provider failures with explicit error codes", async () => {
+    const request = createRequest();
+    request.agents = request.agents.slice(0, 1);
+    request.runtime.maxTaskRetries = 0;
+
+    const plan: DispatcherPlan = {
+      summary: "Single task plan.",
+      tasks: [
+        {
+          id: "task-1",
+          agentId: request.agents[0].id,
+          title: "Rate-limited task",
+          objective: "Exercise provider failure handling.",
+          expectedOutput: "A provider error should surface clearly.",
+          dependsOn: [],
+        },
+      ],
+      synthesisFocus: ["No synthesis after provider failure."],
+    };
+
+    const executor: OrchestrationExecutor = {
+      async generatePlan() {
+        return { plan, meta: mockMeta };
+      },
+      async executeTask() {
+        throw new ProviderExecutionError(
+          "provider-rate-limit",
+          "openai",
+          "gpt-test",
+          "Provider openai/gpt-test failed: rate limit exceeded",
+        );
+      },
+      async synthesize() {
+        return { text: "Should not synthesize", meta: mockMeta };
+      },
+    };
+
+    const { events, result } = await collectEvents(request, executor);
+    const taskErrorStatus = events.find(
+      (event) =>
+        event.type === "node-status" &&
+        event.status === "error" &&
+        event.taskId === "task-1",
+    );
+    const runError = events.find((event) => event.type === "run-error");
+
+    expect(result).toBeUndefined();
+    expect(
+      taskErrorStatus && taskErrorStatus.type === "node-status"
+        ? taskErrorStatus.errorCode
+        : undefined,
+    ).toBe("provider-rate-limit");
+    expect(runError && runError.type === "run-error" ? runError.errorCode : undefined).toBe(
+      "provider-rate-limit",
+    );
   });
 });

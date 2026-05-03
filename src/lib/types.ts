@@ -3,6 +3,28 @@ import { z } from "zod";
 export const providerIds = ["mock", "openai", "anthropic", "google"] as const;
 
 export type ProviderId = (typeof providerIds)[number];
+export type OrchestrationErrorCode =
+  | "invalid-json"
+  | "invalid-request"
+  | "prompt-too-large"
+  | "conversation-too-large"
+  | "too-many-messages"
+  | "duplicate-agent-id"
+  | "system-prompt-too-large"
+  | "provider-auth"
+  | "provider-rate-limit"
+  | "provider-quota"
+  | "provider-timeout"
+  | "provider-malformed-response"
+  | "provider-service"
+  | "duplicate-task-id"
+  | "unknown-agent"
+  | "unknown-dependency"
+  | "plan-cycle"
+  | "task-failed"
+  | "task-dependency-failed"
+  | "run-cancelled"
+  | "internal-error";
 export type NodeStatus =
   | "idle"
   | "planning"
@@ -117,6 +139,7 @@ export type NodeStatusEvent = EventBase & {
   type: "node-status";
   nodeId: string;
   status: NodeStatus;
+  errorCode?: OrchestrationErrorCode;
   title: string;
   detail: string;
   taskId?: string;
@@ -159,6 +182,7 @@ export type FinalResponseEvent = EventBase & {
 export type ProviderWarningEvent = EventBase & {
   type: "provider-warning";
   nodeId: string;
+  errorCode?: OrchestrationErrorCode;
   message: string;
   provider: ProviderExecutionMeta;
 };
@@ -172,12 +196,14 @@ export type RunCompleteEvent = EventBase & {
 export type RunCancelledEvent = EventBase & {
   type: "run-cancelled";
   nodeId: "dispatcher";
+  errorCode?: OrchestrationErrorCode;
   message: string;
 };
 
 export type RunErrorEvent = EventBase & {
   type: "run-error";
   nodeId: string;
+  errorCode?: OrchestrationErrorCode;
   message: string;
 };
 

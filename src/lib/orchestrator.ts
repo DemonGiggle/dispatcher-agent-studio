@@ -3,6 +3,7 @@ import {
   type AgentConfig,
   type DispatcherPlan,
   type NodeStatus,
+  type OrchestrationErrorCode,
   type OrchestrationEvent,
   type OrchestrationRequest,
   type OrchestrationRuntimeOptions,
@@ -14,6 +15,7 @@ import {
   generatePlainText,
   generateStructuredObject,
   isAbortError,
+  isProviderExecutionError,
 } from "@/lib/providers";
 
 type EmitEvent = (event: OrchestrationEvent) => Promise<void>;
@@ -64,11 +66,17 @@ type RunOrchestrationOptions = {
   executor?: OrchestrationExecutor;
 };
 
+const MAX_PROMPT_CHARS = 4_000;
+const MAX_MESSAGES = 24;
+const MAX_CONVERSATION_CHARS = 16_000;
+const MAX_SYSTEM_PROMPT_CHARS = 4_000;
+
 class TaskExecutionError extends Error {
   constructor(
     readonly task: PlanTask,
     readonly agent: AgentConfig,
     readonly attempt: number,
+    readonly code: OrchestrationErrorCode,
     readonly causeMessage: string,
   ) {
     super(
@@ -82,6 +90,7 @@ class DependencyExecutionError extends Error {
   constructor(
     readonly task: PlanTask,
     readonly dependencyId: string,
+    readonly code: OrchestrationErrorCode,
     message: string,
   ) {
     super(
@@ -92,9 +101,22 @@ class DependencyExecutionError extends Error {
 }
 
 class PlanValidationError extends Error {
-  constructor(message: string) {
+  constructor(
+    readonly code: OrchestrationErrorCode,
+    message: string,
+  ) {
     super(message);
     this.name = "PlanValidationError";
+  }
+}
+
+class GuardrailError extends Error {
+  constructor(
+    readonly code: OrchestrationErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "GuardrailError";
   }
 }
 
@@ -204,6 +226,26 @@ function serializeError(error: unknown): string {
   return "Unknown orchestration error.";
 }
 
+function classifyErrorCode(error: unknown): OrchestrationErrorCode | undefined {
+  if (error instanceof GuardrailError || error instanceof PlanValidationError) {
+    return error.code;
+  }
+
+  if (error instanceof TaskExecutionError || error instanceof DependencyExecutionError) {
+    return error.code;
+  }
+
+  if (isProviderExecutionError(error)) {
+    return error.code;
+  }
+
+  if (isAbortError(error)) {
+    return "run-cancelled";
+  }
+
+  return undefined;
+}
+
 function getAbortReason(signal: AbortSignal, fallbackMessage: string): Error {
   if (signal.reason instanceof Error) {
     return signal.reason.name === "AbortError"
@@ -221,6 +263,61 @@ function getAbortReason(signal: AbortSignal, fallbackMessage: string): Error {
 function throwIfAborted(signal: AbortSignal, message: string) {
   if (signal.aborted) {
     throw getAbortReason(signal, message);
+  }
+}
+
+function enforceRequestGuardrails(request: OrchestrationRequest) {
+  if (request.prompt.length > MAX_PROMPT_CHARS) {
+    throw new GuardrailError(
+      "prompt-too-large",
+      `The latest prompt is too large (${request.prompt.length} characters). Keep it under ${MAX_PROMPT_CHARS} characters.`,
+    );
+  }
+
+  if (request.messages.length > MAX_MESSAGES) {
+    throw new GuardrailError(
+      "too-many-messages",
+      `The conversation has ${request.messages.length} messages. Keep it to ${MAX_MESSAGES} messages or fewer per run.`,
+    );
+  }
+
+  const conversationChars = request.messages.reduce(
+    (total, message) => total + message.content.length,
+    0,
+  );
+
+  if (conversationChars > MAX_CONVERSATION_CHARS) {
+    throw new GuardrailError(
+      "conversation-too-large",
+      `The conversation context is too large (${conversationChars} characters). Keep it under ${MAX_CONVERSATION_CHARS} characters.`,
+    );
+  }
+
+  if (request.dispatcher.systemPrompt.length > MAX_SYSTEM_PROMPT_CHARS) {
+    throw new GuardrailError(
+      "system-prompt-too-large",
+      `The dispatcher system prompt is too large. Keep it under ${MAX_SYSTEM_PROMPT_CHARS} characters.`,
+    );
+  }
+
+  const uniqueAgentIds = new Set<string>();
+
+  for (const agent of request.agents) {
+    if (agent.systemPrompt.length > MAX_SYSTEM_PROMPT_CHARS) {
+      throw new GuardrailError(
+        "system-prompt-too-large",
+        `The system prompt for agent "${agent.name}" is too large. Keep it under ${MAX_SYSTEM_PROMPT_CHARS} characters.`,
+      );
+    }
+
+    if (uniqueAgentIds.has(agent.id)) {
+      throw new GuardrailError(
+        "duplicate-agent-id",
+        `Duplicate agent id "${agent.id}" detected. Each agent id must be unique.`,
+      );
+    }
+
+    uniqueAgentIds.add(agent.id);
   }
 }
 
@@ -370,13 +467,17 @@ function assertPlanIsExecutable(plan: DispatcherPlan, agents: AgentConfig[]) {
 
   for (const task of plan.tasks) {
     if (taskIds.has(task.id)) {
-      throw new PlanValidationError(`Duplicate task id "${task.id}" in dispatcher plan.`);
+      throw new PlanValidationError(
+        "duplicate-task-id",
+        `Duplicate task id "${task.id}" in dispatcher plan.`,
+      );
     }
 
     taskIds.add(task.id);
 
     if (!agentIds.has(task.agentId)) {
       throw new PlanValidationError(
+        "unknown-agent",
         `Dispatcher assigned task "${task.title}" to unknown agent "${task.agentId}".`,
       );
     }
@@ -384,6 +485,7 @@ function assertPlanIsExecutable(plan: DispatcherPlan, agents: AgentConfig[]) {
     for (const dependencyId of task.dependsOn) {
       if (!taskById.has(dependencyId)) {
         throw new PlanValidationError(
+          "unknown-dependency",
           `Task "${task.title}" depends on unknown task "${dependencyId}".`,
         );
       }
@@ -400,6 +502,7 @@ function assertPlanIsExecutable(plan: DispatcherPlan, agents: AgentConfig[]) {
 
     if (visiting.has(taskId)) {
       throw new PlanValidationError(
+        "plan-cycle",
         `Dispatcher plan contains a dependency cycle involving "${taskId}".`,
       );
     }
@@ -639,6 +742,7 @@ async function emitNodeStatus(
   title: string,
   detail: string,
   options: {
+    errorCode?: OrchestrationErrorCode;
     taskId?: string;
     attempt?: number;
     input?: string;
@@ -653,6 +757,7 @@ async function emitNodeStatus(
     timestamp: now(),
     nodeId,
     status,
+    errorCode: options.errorCode,
     title,
     detail,
     taskId: options.taskId,
@@ -668,6 +773,7 @@ async function emitProviderWarning(
   runId: string,
   nodeId: string,
   meta: ProviderExecutionMeta,
+  errorCode?: OrchestrationErrorCode,
 ) {
   if (!meta.warning) {
     return;
@@ -679,6 +785,7 @@ async function emitProviderWarning(
     runId,
     timestamp: now(),
     nodeId,
+    errorCode,
     message: meta.warning,
     provider: meta,
   });
@@ -698,6 +805,8 @@ export async function runOrchestration(
   const agentById = new Map(request.agents.map((agent) => [agent.id, agent] as const));
 
   try {
+    enforceRequestGuardrails(request);
+
     const agentRoster = request.agents
       .map(
         (agent) =>
@@ -753,8 +862,6 @@ export async function runOrchestration(
 
     const semaphore = new Semaphore(runtime.maxParallelTasks);
     const taskPromises = new Map<string, Promise<WorkerReport>>();
-    const workerReportsById = new Map<string, WorkerReport>();
-
     const markCancelledIfNeeded = async (
       task: PlanTask,
       detail: string,
@@ -781,6 +888,7 @@ export async function runOrchestration(
 
       if (!agent) {
         throw new PlanValidationError(
+          "unknown-agent",
           `Task "${task.title}" resolved to missing agent "${task.agentId}".`,
         );
       }
@@ -803,6 +911,7 @@ export async function runOrchestration(
             const dependencyError = new DependencyExecutionError(
               task,
               dependencyId,
+              "task-dependency-failed",
               serializeError(error),
             );
             await markCancelledIfNeeded(task, dependencyError.message);
@@ -882,7 +991,6 @@ export async function runOrchestration(
               attempt,
             };
 
-            workerReportsById.set(task.id, report);
             taskTerminalStates.add(task.id);
 
             await emit({
@@ -934,6 +1042,7 @@ export async function runOrchestration(
           task,
           agent,
           runtime.maxTaskRetries + 1,
+          classifyErrorCode(lastError) ?? "task-failed",
           serializeError(lastError),
         );
 
@@ -946,6 +1055,7 @@ export async function runOrchestration(
           task.title,
           taskError.message,
           {
+            errorCode: taskError.code,
             taskId: task.id,
             attempt: runtime.maxTaskRetries + 1,
             output: taskError.causeMessage,
@@ -1027,6 +1137,7 @@ export async function runOrchestration(
         "cancelled",
         "Run cancelled",
         message,
+        { errorCode: "run-cancelled" },
       );
 
       await emit({
@@ -1035,6 +1146,7 @@ export async function runOrchestration(
         runId,
         timestamp: now(),
         nodeId: "dispatcher",
+        errorCode: "run-cancelled",
         message,
       });
 
@@ -1042,6 +1154,7 @@ export async function runOrchestration(
     }
 
     const message = serializeError(error);
+    const errorCode = classifyErrorCode(error) ?? "internal-error";
     const nodeId =
       error instanceof TaskExecutionError
         ? error.agent.id
@@ -1056,6 +1169,7 @@ export async function runOrchestration(
       "error",
       "Run failed",
       message,
+      { errorCode },
     );
 
     await emit({
@@ -1064,6 +1178,7 @@ export async function runOrchestration(
       runId,
       timestamp: now(),
       nodeId,
+      errorCode,
       message,
     });
 

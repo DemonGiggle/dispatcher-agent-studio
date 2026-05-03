@@ -4,7 +4,12 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { generateObject, generateText } from "ai";
 import { z } from "zod";
 
-import type { LlmSelection, ProviderExecutionMeta, ProviderId } from "@/lib/types";
+import type {
+  LlmSelection,
+  OrchestrationErrorCode,
+  ProviderExecutionMeta,
+  ProviderId,
+} from "@/lib/types";
 
 const providerEnvVars: Record<Exclude<ProviderId, "mock">, string> = {
   openai: "OPENAI_API_KEY",
@@ -13,6 +18,18 @@ const providerEnvVars: Record<Exclude<ProviderId, "mock">, string> = {
 };
 
 type SupportedModel = Parameters<typeof generateText>[0]["model"];
+
+export class ProviderExecutionError extends Error {
+  constructor(
+    readonly code: OrchestrationErrorCode,
+    readonly provider: ProviderId,
+    readonly model: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ProviderExecutionError";
+  }
+}
 
 type ResolvedModel =
   | {
@@ -53,6 +70,76 @@ export function createAbortError(message = "The operation was aborted.") {
 
 export function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+export function isProviderExecutionError(
+  error: unknown,
+): error is ProviderExecutionError {
+  return error instanceof ProviderExecutionError;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.length > 0) {
+    return error;
+  }
+
+  return "Unknown provider error.";
+}
+
+function extractStatusCode(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  const candidate = Reflect.get(error, "statusCode");
+
+  return typeof candidate === "number" ? candidate : undefined;
+}
+
+function classifyProviderError(
+  error: unknown,
+  selection: LlmSelection,
+): ProviderExecutionError {
+  const message = errorMessage(error);
+  const statusCode = extractStatusCode(error);
+  const normalized = message.toLowerCase();
+  let code: OrchestrationErrorCode = "provider-service";
+
+  if (statusCode === 401 || statusCode === 403) {
+    code = "provider-auth";
+  } else if (
+    statusCode === 429 &&
+    /(quota|billing|insufficient|credit|limit reached)/i.test(message)
+  ) {
+    code = "provider-quota";
+  } else if (statusCode === 429) {
+    code = "provider-rate-limit";
+  } else if (
+    /(timed out|timeout|deadline exceeded|time limit|request timed out)/i.test(
+      normalized,
+    )
+  ) {
+    code = "provider-timeout";
+  } else if (
+    /(json|schema|parse|invalid response|malformed|unexpected response)/i.test(
+      normalized,
+    )
+  ) {
+    code = "provider-malformed-response";
+  } else if (typeof statusCode === "number" && statusCode >= 500) {
+    code = "provider-service";
+  }
+
+  return new ProviderExecutionError(
+    code,
+    selection.provider,
+    selection.model,
+    `Provider ${selection.provider}/${selection.model} failed: ${message}`,
+  );
 }
 
 function getAbortReason(signal: AbortSignal, fallbackMessage: string) {
@@ -176,16 +263,24 @@ export async function generatePlainText({
     return { text: mock(), meta: resolved.meta };
   }
 
-  const result = await generateText({
-    model: resolved.model,
-    system,
-    prompt,
-    temperature: selection.temperature,
-    abortSignal,
-    timeout: timeoutMs,
-  });
+  try {
+    const result = await generateText({
+      model: resolved.model,
+      system,
+      prompt,
+      temperature: selection.temperature,
+      abortSignal,
+      timeout: timeoutMs,
+    });
 
-  return { text: result.text, meta: resolved.meta };
+    return { text: result.text, meta: resolved.meta };
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
+    throw classifyProviderError(error, selection);
+  }
 }
 
 export async function generateStructuredObject<T>({
@@ -205,16 +300,24 @@ export async function generateStructuredObject<T>({
     return { object: mock(), meta: resolved.meta };
   }
 
-  const result = await generateObject({
-    model: resolved.model,
-    system,
-    prompt,
-    schema,
-    schemaName,
-    temperature: selection.temperature,
-    abortSignal,
-    timeout: timeoutMs,
-  });
+  try {
+    const result = await generateObject({
+      model: resolved.model,
+      system,
+      prompt,
+      schema,
+      schemaName,
+      temperature: selection.temperature,
+      abortSignal,
+      timeout: timeoutMs,
+    });
 
-  return { object: result.object, meta: resolved.meta };
+    return { object: result.object, meta: resolved.meta };
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
+    throw classifyProviderError(error, selection);
+  }
 }
