@@ -5,9 +5,11 @@ export type AgentTemplateDefinition = {
   id: string;
   label: string;
   description: string;
+  category: string;
   role: string;
   specialty: string;
   capabilities: string[];
+  keywords: string[];
   provider: AgentConfig["provider"];
   model: string;
   temperature: number;
@@ -27,10 +29,12 @@ export const agentTemplates: AgentTemplateDefinition[] = [
     id: "product",
     label: "Product Strategist",
     description: "Clarifies scope, value, edge cases, and delivery priorities.",
+    category: "Product",
     role: "Product",
     specialty:
       "Clarifies scope, user value, edge cases, and success criteria for the request.",
     capabilities: ["Scope definition", "Prioritization", "Edge cases"],
+    keywords: ["requirements", "roadmap", "mvp", "scope"],
     provider: "anthropic",
     model: "claude-sonnet-4-5",
     temperature: 0.4,
@@ -42,10 +46,12 @@ export const agentTemplates: AgentTemplateDefinition[] = [
     id: "architect",
     label: "System Architect",
     description: "Shapes the runtime, data flow, contracts, and technical sequencing.",
+    category: "Architecture",
     role: "Architecture",
     specialty:
       "Designs the system shape, data flow, orchestration contracts, and technical decomposition.",
     capabilities: ["Architecture", "Data flow", "Execution design"],
+    keywords: ["system design", "interfaces", "contracts", "runtime"],
     provider: "openai",
     model: getDefaultModel("openai"),
     temperature: 0.35,
@@ -57,10 +63,12 @@ export const agentTemplates: AgentTemplateDefinition[] = [
     id: "ux",
     label: "UX Visualizer",
     description: "Turns orchestration behavior into clear UI states and interaction flows.",
+    category: "Design",
     role: "Design",
     specialty:
       "Translates behavior into UI states, graph visualization ideas, and interaction details.",
     capabilities: ["UI states", "Interaction flow", "Visual hierarchy"],
+    keywords: ["ux", "ui", "journeys", "layout"],
     provider: "google",
     model: "gemini-2.5-flash",
     temperature: 0.5,
@@ -72,10 +80,12 @@ export const agentTemplates: AgentTemplateDefinition[] = [
     id: "research",
     label: "Research Specialist",
     description: "Finds domain context, risks, and supporting details for the plan.",
+    category: "Research",
     role: "Research",
     specialty:
       "Investigates domain context, references, risks, and supporting details for the task.",
     capabilities: ["Research", "Risk discovery", "Supporting evidence"],
+    keywords: ["analysis", "references", "domain", "risks"],
     provider: "mock",
     model: getDefaultModel("mock"),
     temperature: 0.35,
@@ -83,10 +93,161 @@ export const agentTemplates: AgentTemplateDefinition[] = [
       "You are a research specialist. Surface supporting context, open questions, and notable risks in a concise, synthesis-friendly format.",
     accent: "#22c55e",
   },
+  {
+    id: "embedded-datasheet",
+    label: "DataSheet Consultant",
+    description:
+      "Extracts requirements, limits, and bring-up constraints from MCU, sensor, and PMIC datasheets.",
+    category: "Embedded Engineer",
+    role: "Embedded Engineer",
+    specialty:
+      "Maps datasheet details into pin plans, timing limits, electrical constraints, and implementation checklists.",
+    capabilities: ["Datasheet review", "Pin planning", "Electrical constraints"],
+    keywords: ["datasheet", "mcu", "sensor", "pmic", "pin mux"],
+    provider: "anthropic",
+    model: "claude-sonnet-4-5",
+    temperature: 0.25,
+    systemPrompt:
+      "You are an embedded datasheet consultant. Translate component datasheets into implementation constraints, register considerations, pin planning notes, and concrete engineering guidance.",
+    accent: "#38bdf8",
+  },
+  {
+    id: "embedded-arm",
+    label: "Arm Consultant",
+    description:
+      "Advises on Cortex-M architecture, startup code, CMSIS usage, and low-level debugging paths.",
+    category: "Embedded Engineer",
+    role: "Embedded Engineer",
+    specialty:
+      "Guides Arm core bring-up, memory layout, exception handling, and architecture-aware firmware decisions.",
+    capabilities: ["Arm architecture", "CMSIS", "Core bring-up"],
+    keywords: ["arm", "cortex-m", "cmsis", "startup", "nvic"],
+    provider: "openai",
+    model: getDefaultModel("openai"),
+    temperature: 0.3,
+    systemPrompt:
+      "You are an Arm consultant for embedded systems. Focus on Cortex-M startup flows, memory maps, interrupt behavior, CMSIS integration, and architecture-specific debugging advice.",
+    accent: "#f59e0b",
+  },
+  {
+    id: "embedded-bringup",
+    label: "Board Bring-up Engineer",
+    description:
+      "Turns schematics, boot logs, and lab symptoms into a structured bring-up sequence.",
+    category: "Embedded Engineer",
+    role: "Embedded Engineer",
+    specialty:
+      "Owns first-power-on triage, clock and reset validation, rail checks, and board-level debug planning.",
+    capabilities: ["Board bring-up", "Clock/reset checks", "Boot triage"],
+    keywords: ["bring-up", "schematic", "boot log", "power rail", "oscillator"],
+    provider: "google",
+    model: "gemini-2.5-flash",
+    temperature: 0.35,
+    systemPrompt:
+      "You are a board bring-up specialist. Build clear, low-risk debug sequences for power, reset, clocking, peripheral readiness, and first boot validation.",
+    accent: "#10b981",
+  },
+  {
+    id: "embedded-driver",
+    label: "Peripheral Driver Engineer",
+    description:
+      "Designs robust HAL and bare-metal drivers for buses, sensors, and control peripherals.",
+    category: "Embedded Engineer",
+    role: "Embedded Engineer",
+    specialty:
+      "Breaks down peripheral integration into initialization, data transfer, fault handling, and validation steps.",
+    capabilities: ["Driver design", "HAL integration", "Peripheral validation"],
+    keywords: ["i2c", "spi", "uart", "dma", "driver"],
+    provider: "openai",
+    model: getDefaultModel("openai"),
+    temperature: 0.3,
+    systemPrompt:
+      "You are a peripheral driver engineer. Produce reliable embedded driver guidance with attention to initialization order, timing, DMA usage, interrupts, and error recovery.",
+    accent: "#06b6d4",
+  },
+  {
+    id: "embedded-rtos",
+    label: "RTOS Integrator",
+    description:
+      "Shapes task models, interrupt handoffs, and concurrency patterns for real-time firmware.",
+    category: "Embedded Engineer",
+    role: "Embedded Engineer",
+    specialty:
+      "Balances task design, ISR boundaries, latency, queues, and synchronization for maintainable RTOS systems.",
+    capabilities: ["RTOS design", "Latency tuning", "Task orchestration"],
+    keywords: ["rtos", "freertos", "tasks", "interrupts", "queues"],
+    provider: "anthropic",
+    model: "claude-sonnet-4-5",
+    temperature: 0.3,
+    systemPrompt:
+      "You are an RTOS integration specialist. Recommend practical task structures, ISR/task boundaries, synchronization patterns, and timing-safe real-time designs.",
+    accent: "#8b5cf6",
+  },
+  {
+    id: "embedded-debug",
+    label: "Firmware Debugger",
+    description:
+      "Investigates crashes, lockups, and timing bugs with register-level and trace-driven reasoning.",
+    category: "Embedded Engineer",
+    role: "Embedded Engineer",
+    specialty:
+      "Uses logs, fault registers, trace output, and toolchain clues to isolate firmware failures quickly.",
+    capabilities: ["Crash triage", "SWD/JTAG workflows", "Fault analysis"],
+    keywords: ["debug", "hardfault", "jtag", "swd", "trace"],
+    provider: "mock",
+    model: getDefaultModel("mock"),
+    temperature: 0.25,
+    systemPrompt:
+      "You are a firmware debugger. Diagnose embedded failures using fault context, logs, register state, and probable timing interactions. Prefer concrete debug steps over theory.",
+    accent: "#ef4444",
+  },
 ];
 
 export function getAgentTemplate(templateId: string): AgentTemplateDefinition | undefined {
   return agentTemplates.find((template) => template.id === templateId);
+}
+
+export function filterAgentTemplates(
+  templates: AgentTemplateDefinition[],
+  {
+    category = "all",
+    query = "",
+  }: {
+    category?: string;
+    query?: string;
+  } = {},
+): AgentTemplateDefinition[] {
+  const normalizedCategory = normalizeValue(category);
+  const normalizedQuery = normalizeValue(query);
+
+  return templates.filter((template) => {
+    const matchesCategory =
+      normalizedCategory.length === 0 ||
+      normalizedCategory === "all" ||
+      normalizeValue(template.category) === normalizedCategory;
+
+    if (!matchesCategory) {
+      return false;
+    }
+
+    if (normalizedQuery.length === 0) {
+      return true;
+    }
+
+    const searchContent = [
+      template.label,
+      template.description,
+      template.category,
+      template.role,
+      template.specialty,
+      ...template.capabilities,
+      ...template.keywords,
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return searchContent.includes(normalizedQuery);
+  });
 }
 
 export function createAgentFromTemplate(

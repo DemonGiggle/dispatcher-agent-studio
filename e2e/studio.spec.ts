@@ -14,6 +14,13 @@ test("runs the main studio workflow and exposes replay controls", async ({ page 
   await expect(
     page.getByRole("heading", { name: "Orchestration setup" }),
   ).toBeVisible();
+  await expect(page.getByLabel("Filter templates")).toBeVisible();
+  await page.getByRole("button", { name: "Embedded Engineer", exact: true }).click();
+  await expect(page.getByText("6/10 shown")).toBeVisible();
+  await page.getByLabel("Filter templates").fill("arm");
+  await expect(page.getByText("1/10 shown")).toBeVisible();
+  await page.getByRole("button", { name: /Arm Consultant/ }).click();
+  await expect(page.getByRole("heading", { name: "Arm Consultant" })).toBeVisible();
   await page.getByRole("combobox").first().selectOption("mock");
   await expect(page.getByText("mock fallback").first()).toBeVisible();
   await expect(

@@ -8,12 +8,14 @@ import {
   Plus,
   Power,
   RotateCcw,
+  Search,
   Sparkles,
   Trash2,
 } from "lucide-react";
 
 import {
   agentTemplates,
+  filterAgentTemplates,
   type AgentValidationIssue,
 } from "@/lib/agent-builder";
 import type { SavedTeamRecord } from "@/lib/studio-persistence";
@@ -215,10 +217,26 @@ export function ConfigPanel({
   onDeleteSavedTeam,
 }: ConfigPanelProps) {
   const [teamNameDraft, setTeamNameDraft] = useState("");
+  const [templateQuery, setTemplateQuery] = useState("");
+  const [templateCategory, setTemplateCategory] = useState("all");
   const dispatcherProviderEntry = getProviderEntry(dispatcher.provider);
   const dispatcherModels = getProviderModels(dispatcher.provider);
   const dispatcherModelEntry = getModelEntry(dispatcher.provider, dispatcher.model);
   const activeAgents = agents.filter((agent) => agent.enabled);
+  const templateCategories = useMemo(
+    () => ["all", ...new Set(agentTemplates.map((template) => template.category))],
+    [],
+  );
+  const visibleTemplates = useMemo(
+    () =>
+      filterAgentTemplates(agentTemplates, {
+        category: templateCategory,
+        query: templateQuery,
+      }),
+    [templateCategory, templateQuery],
+  );
+  const hasTemplateFilters =
+    templateCategory !== "all" || templateQuery.trim().length > 0;
 
   const { teamIssues, issuesByAgentId } = useMemo(() => {
     const grouped = new Map<string, AgentValidationIssue[]>();
@@ -384,41 +402,151 @@ export function ConfigPanel({
         </div>
 
         <div className="mb-4 rounded-2xl border border-white/10 bg-white/4 p-4">
-          <p className="mb-3 text-xs uppercase tracking-[0.2em] text-slate-500">
-            Start from a template
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {agentTemplates.map((template) => (
-              <button
-                key={template.id}
-                type="button"
-                onClick={() => onAddAgentFromTemplate(template.id)}
-                disabled={disabled}
-                className={`rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-left transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
-              >
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-slate-100">
-                    {template.label}
-                  </p>
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: template.accent }}
-                  />
-                </div>
-                <p className="text-xs text-slate-400">{template.description}</p>
-              </button>
-            ))}
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                Start from a template
+              </p>
+              <p className="mt-1 text-sm text-slate-300">
+                Browse specialist presets, then filter down to the roles you need.
+              </p>
+            </div>
+            <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300">
+              {visibleTemplates.length}/{agentTemplates.length} shown
+            </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onAddAgent}
-            disabled={disabled}
-            className={`mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add custom agent
-          </button>
+          <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-slate-500">
+                Find a template
+              </span>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <input
+                  className={`${inputClassName()} pl-9`}
+                  value={templateQuery}
+                  onChange={(event) => setTemplateQuery(event.target.value)}
+                  placeholder="Search roles, specialties, or capabilities"
+                  aria-label="Filter templates"
+                />
+              </div>
+            </label>
+
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-slate-500">
+                Filter by focus
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {templateCategories.map((category) => {
+                  const isActive = templateCategory === category;
+
+                  return (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => setTemplateCategory(category)}
+                      className={`rounded-full border px-3 py-1.5 text-xs transition ${focusRingClass} ${
+                        isActive
+                          ? "border-cyan-400/40 bg-cyan-400/15 text-cyan-100"
+                          : "border-white/10 bg-white/5 text-slate-300 hover:border-cyan-400/30 hover:bg-cyan-400/10"
+                      }`}
+                      aria-pressed={isActive}
+                    >
+                      {category === "all" ? "All templates" : category}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2" role="list" aria-label="Agent templates">
+            {visibleTemplates.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/10 bg-slate-900/40 p-4 text-sm text-slate-400">
+                No templates match the current filters.
+              </div>
+            ) : (
+              <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+                {visibleTemplates.map((template) => (
+                  <div key={template.id} role="listitem">
+                    <button
+                      type="button"
+                      onClick={() => onAddAgentFromTemplate(template.id)}
+                      disabled={disabled}
+                      className={`w-full rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-left transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-3">
+                            <span
+                              className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+                              style={{ backgroundColor: template.accent }}
+                            />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-medium text-slate-100">
+                                  {template.label}
+                                </p>
+                                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-slate-300">
+                                  {template.category}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-slate-400">
+                                {template.description}
+                              </p>
+                            </div>
+                          </div>
+
+                          <p className="mt-3 text-sm text-slate-300">{template.specialty}</p>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {template.capabilities.map((capability) => (
+                              <span
+                                key={capability}
+                                className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-[10px] text-cyan-100"
+                              >
+                                {capability}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] uppercase tracking-[0.2em] text-slate-300">
+                          Add
+                        </span>
+                      </div>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={onAddAgent}
+              disabled={disabled}
+              className={`inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60 ${focusRingClass}`}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add custom agent
+            </button>
+
+            {hasTemplateFilters ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setTemplateCategory("all");
+                  setTemplateQuery("");
+                }}
+                className={`rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:border-cyan-400/30 hover:bg-cyan-400/10 ${focusRingClass}`}
+              >
+                Clear filters
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="mb-4 rounded-2xl border border-white/10 bg-white/4 p-4">
