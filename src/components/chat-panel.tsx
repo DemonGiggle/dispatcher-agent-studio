@@ -2,7 +2,14 @@
 
 import { ArrowUpRight, LoaderCircle, Sparkles } from "lucide-react";
 
-import type { ConversationMessage } from "@/lib/types";
+import type { ConversationMessage, OrchestrationErrorCode } from "@/lib/types";
+
+type RunAlert = {
+  tone: "error" | "warning" | "info";
+  title: string;
+  detail: string;
+  code?: OrchestrationErrorCode;
+};
 
 type ChatPanelProps = {
   draft: string;
@@ -11,6 +18,7 @@ type ChatPanelProps = {
   isRunning: boolean;
   statusText: string;
   errorText?: string;
+  alert?: RunAlert;
   onDraftChange: (value: string) => void;
   onSubmit: () => void;
   onPickPrompt: (prompt: string) => void;
@@ -23,6 +31,7 @@ export function ChatPanel({
   isRunning,
   statusText,
   errorText,
+  alert,
   onDraftChange,
   onSubmit,
   onPickPrompt,
@@ -101,6 +110,28 @@ export function ChatPanel({
           {errorText ? (
             <div className="rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
               {errorText}
+            </div>
+          ) : null}
+
+          {alert ? (
+            <div
+              className={`rounded-2xl border px-4 py-3 text-sm ${
+                alert.tone === "error"
+                  ? "border-rose-400/20 bg-rose-400/10 text-rose-100"
+                  : alert.tone === "warning"
+                    ? "border-amber-400/20 bg-amber-400/10 text-amber-100"
+                    : "border-slate-400/20 bg-slate-400/10 text-slate-100"
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold">{alert.title}</span>
+                {alert.code ? (
+                  <span className="rounded-full border border-current/20 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em]">
+                    {alert.code}
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-2 text-sm/6">{alert.detail}</p>
             </div>
           ) : null}
 
