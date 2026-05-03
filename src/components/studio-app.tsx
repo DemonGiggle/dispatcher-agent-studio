@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Boxes, BrainCircuit, Waypoints } from "lucide-react";
 
 import { ChatPanel } from "@/components/chat-panel";
@@ -14,6 +14,11 @@ import {
   cloneStarterMessages,
   samplePrompts,
 } from "@/lib/defaults";
+import {
+  getDefaultModel,
+  getDefaultProviderHealth,
+  type ProviderHealthEntry,
+} from "@/lib/model-catalog";
 import { deriveRunSnapshot } from "@/lib/studio-graph";
 import type {
   AgentConfig,
@@ -23,6 +28,7 @@ import type {
   OrchestrationEvent,
   OrchestrationRequest,
   OrchestrationRuntimeOptions,
+  ProviderId,
 } from "@/lib/types";
 
 const accentPalette = ["#38bdf8", "#7c3aed", "#f97316", "#22c55e", "#ec4899"];
@@ -141,12 +147,43 @@ export function StudioApp() {
   const [statusText, setStatusText] = useState("Ready for a new request.");
   const [errorText, setErrorText] = useState<string>();
   const [runAlert, setRunAlert] = useState<RunAlert>();
+  const [providerHealthById, setProviderHealthById] = useState<
+    Record<ProviderId, ProviderHealthEntry>
+  >(getDefaultProviderHealth);
   const [isRunning, setIsRunning] = useState(false);
 
   const snapshot = useMemo(
     () => deriveRunSnapshot(dispatcher, agents, events),
     [agents, dispatcher, events],
   );
+
+  useEffect(() => {
+    let active = true;
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/provider-status");
+
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json()) as {
+          providers?: Record<ProviderId, ProviderHealthEntry>;
+        };
+
+        if (active && payload.providers) {
+          setProviderHealthById(payload.providers);
+        }
+      } catch {
+        // Keep the default missing-key state when the status endpoint is unavailable.
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleDispatcherChange = <K extends keyof DispatcherConfig>(
     field: K,
@@ -178,7 +215,7 @@ export function StudioApp() {
         role: "Specialist",
         specialty: "Describe what this agent is best at.",
         provider: "mock",
-        model: "demo-specialist",
+        model: getDefaultModel("mock"),
         temperature: 0.45,
         systemPrompt:
           "You are a focused specialist. Return structured, practical recommendations for the assigned task.",
@@ -376,6 +413,7 @@ export function StudioApp() {
             onAddAgent={handleAddAgent}
             onRemoveAgent={handleRemoveAgent}
             onResetDefaults={handleResetDefaults}
+            providerHealthById={providerHealthById}
           />
 
           <ChatPanel

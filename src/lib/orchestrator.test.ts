@@ -353,4 +353,30 @@ describe("runOrchestration", () => {
       "provider-rate-limit",
     );
   });
+
+  it("rejects unsupported provider models before task execution", async () => {
+    const request = createRequest();
+    request.agents = request.agents.slice(0, 1);
+    request.dispatcher.provider = "mock";
+    request.dispatcher.model = "demo-dispatcher";
+    request.agents[0].provider = "openai";
+    request.agents[0].model = "not-a-supported-openai-model";
+    request.runtime.maxTaskRetries = 0;
+
+    const events: OrchestrationEvent[] = [];
+    const result = await runOrchestration(
+      request,
+      async (event) => {
+        events.push(event);
+      },
+      {},
+    );
+
+    const runError = events.find((event) => event.type === "run-error");
+
+    expect(result).toBeUndefined();
+    expect(runError && runError.type === "run-error" ? runError.errorCode : undefined).toBe(
+      "unsupported-model",
+    );
+  });
 });

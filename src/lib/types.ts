@@ -11,6 +11,7 @@ export type OrchestrationErrorCode =
   | "too-many-messages"
   | "duplicate-agent-id"
   | "system-prompt-too-large"
+  | "unsupported-model"
   | "provider-auth"
   | "provider-rate-limit"
   | "provider-quota"

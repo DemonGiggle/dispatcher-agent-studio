@@ -2,6 +2,15 @@
 
 import { RotateCcw, Sparkles, Trash2 } from "lucide-react";
 
+import {
+  getDefaultProviderHealth,
+  getDefaultModel,
+  getModelEntry,
+  getProviderEntry,
+  getProviderModels,
+  type ProviderHealthEntry,
+  providerOptions,
+} from "@/lib/model-catalog";
 import type { AgentConfig, DispatcherConfig, ProviderId } from "@/lib/types";
 
 type ConfigPanelProps = {
@@ -20,14 +29,8 @@ type ConfigPanelProps = {
   onAddAgent: () => void;
   onRemoveAgent: (agentId: string) => void;
   onResetDefaults: () => void;
+  providerHealthById: Record<ProviderId, ProviderHealthEntry>;
 };
-
-const providerOptions: Array<{ value: ProviderId; label: string }> = [
-  { value: "mock", label: "Mock" },
-  { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "google", label: "Google" },
-];
 
 type FieldProps = {
   label: string;
@@ -49,6 +52,35 @@ function inputClassName() {
   return "w-full rounded-xl border border-white/10 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/10";
 }
 
+function renderProviderHealth(
+  providerId: ProviderId,
+  providerHealthById: Record<ProviderId, ProviderHealthEntry>,
+) {
+  const health = providerHealthById[providerId] ?? getDefaultProviderHealth()[providerId];
+
+  if (health.status === "mock") {
+    return (
+      <span className="rounded-full border border-slate-400/20 bg-slate-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-slate-200">
+        mock fallback
+      </span>
+    );
+  }
+
+  if (health.status === "configured") {
+    return (
+      <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-100">
+        credentials ready
+      </span>
+    );
+  }
+
+  return (
+    <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-amber-100">
+      missing key
+    </span>
+  );
+}
+
 export function ConfigPanel({
   dispatcher,
   agents,
@@ -58,7 +90,12 @@ export function ConfigPanel({
   onAddAgent,
   onRemoveAgent,
   onResetDefaults,
+  providerHealthById,
 }: ConfigPanelProps) {
+  const dispatcherProviderEntry = getProviderEntry(dispatcher.provider);
+  const dispatcherModels = getProviderModels(dispatcher.provider);
+  const dispatcherModelEntry = getModelEntry(dispatcher.provider, dispatcher.model);
+
   return (
     <div className="space-y-4">
       <div className="rounded-[28px] border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-slate-950/30">
@@ -86,6 +123,7 @@ export function ConfigPanel({
           <div className="mb-3 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-cyan-300" />
             <p className="text-sm font-semibold text-slate-100">Dispatcher</p>
+            {renderProviderHealth(dispatcher.provider, providerHealthById)}
           </div>
 
           <div className="grid gap-3">
@@ -106,10 +144,11 @@ export function ConfigPanel({
                   className={inputClassName()}
                   value={dispatcher.provider}
                   onChange={(event) =>
-                    onDispatcherChange(
-                      "provider",
-                      event.target.value as DispatcherConfig["provider"],
-                    )
+                    (() => {
+                      const nextProvider = event.target.value as DispatcherConfig["provider"];
+                      onDispatcherChange("provider", nextProvider);
+                      onDispatcherChange("model", getDefaultModel(nextProvider));
+                    })()
                   }
                   disabled={disabled}
                 >
@@ -122,15 +161,38 @@ export function ConfigPanel({
               </Field>
 
               <Field label="Model">
-                <input
+                <select
                   className={inputClassName()}
                   value={dispatcher.model}
                   onChange={(event) =>
                     onDispatcherChange("model", event.target.value)
                   }
                   disabled={disabled}
-                />
+                >
+                  {dispatcherModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.label}
+                    </option>
+                  ))}
+                </select>
               </Field>
+            </div>
+
+            <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-slate-300">
+              <p className="font-medium text-slate-100">
+                {dispatcherProviderEntry.label}
+              </p>
+              <p className="mt-1 text-slate-400">
+                {dispatcherProviderEntry.description}
+              </p>
+              <p className="mt-2 text-slate-500">
+                Model: {dispatcherModelEntry?.description ?? dispatcher.model}
+              </p>
+              {dispatcherProviderEntry.envVar ? (
+                <p className="mt-2 text-slate-500">
+                  Env: {dispatcherProviderEntry.envVar}
+                </p>
+              ) : null}
             </div>
 
             <Field label="Temperature">
@@ -186,6 +248,12 @@ export function ConfigPanel({
 
         <div className="space-y-4">
           {agents.map((agent) => (
+            (() => {
+              const providerEntry = getProviderEntry(agent.provider);
+              const providerModels = getProviderModels(agent.provider);
+              const providerModelEntry = getModelEntry(agent.provider, agent.model);
+
+              return (
             <section
               key={agent.id}
               className="rounded-2xl border border-white/10 bg-white/4 p-4"
@@ -204,6 +272,7 @@ export function ConfigPanel({
                     <p className="text-xs text-slate-400">{agent.role}</p>
                   </div>
                 </div>
+                {renderProviderHealth(agent.provider, providerHealthById)}
 
                 <button
                   type="button"
@@ -258,11 +327,15 @@ export function ConfigPanel({
                       className={inputClassName()}
                       value={agent.provider}
                       onChange={(event) =>
-                        onAgentChange(
-                          agent.id,
-                          "provider",
-                          event.target.value as AgentConfig["provider"],
-                        )
+                        (() => {
+                          const nextProvider = event.target.value as AgentConfig["provider"];
+                          onAgentChange(agent.id, "provider", nextProvider);
+                          onAgentChange(
+                            agent.id,
+                            "model",
+                            getDefaultModel(nextProvider),
+                          );
+                        })()
                       }
                       disabled={disabled}
                     >
@@ -275,15 +348,36 @@ export function ConfigPanel({
                   </Field>
 
                   <Field label="Model">
-                    <input
+                    <select
                       className={inputClassName()}
                       value={agent.model}
                       onChange={(event) =>
                         onAgentChange(agent.id, "model", event.target.value)
                       }
                       disabled={disabled}
-                    />
+                    >
+                      {providerModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
                   </Field>
+                </div>
+
+                <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-slate-300">
+                  <p className="font-medium text-slate-100">{providerEntry.label}</p>
+                  <p className="mt-1 text-slate-400">
+                    {providerEntry.description}
+                  </p>
+                  <p className="mt-2 text-slate-500">
+                    Model: {providerModelEntry?.description ?? agent.model}
+                  </p>
+                  {providerEntry.envVar ? (
+                    <p className="mt-2 text-slate-500">
+                      Env: {providerEntry.envVar}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -331,6 +425,8 @@ export function ConfigPanel({
                 </Field>
               </div>
             </section>
+              );
+            })()
           ))}
         </div>
       </div>

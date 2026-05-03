@@ -4,12 +4,13 @@ import type {
   DispatcherConfig,
   OrchestrationRuntimeOptions,
 } from "@/lib/types";
+import { getDefaultModel } from "@/lib/model-catalog";
 
 export const defaultDispatcher: DispatcherConfig = {
   id: "dispatcher",
   name: "Dispatcher",
   provider: "openai",
-  model: "gpt-4.1",
+  model: getDefaultModel("openai"),
   temperature: 0.3,
   systemPrompt:
     "You are the lead dispatcher for a multi-agent studio. Break the user's request into clear tasks, route each task to the best specialist, and produce a final synthesis that sounds like one coherent answer. Prefer clear scope boundaries, explicit expected outputs, and minimal overlap between agents.",
@@ -36,7 +37,7 @@ export const defaultAgents: AgentConfig[] = [
     specialty:
       "Designs the system shape, data flow, orchestration contracts, and technical decomposition.",
     provider: "openai",
-    model: "gpt-4.1",
+    model: getDefaultModel("openai"),
     temperature: 0.35,
     systemPrompt:
       "You are a senior system architect. Produce implementation-ready technical structure, interfaces, and sequencing. Keep the design grounded and concrete.",
