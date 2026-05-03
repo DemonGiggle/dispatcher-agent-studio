@@ -9,6 +9,8 @@ import { EventInspector } from "@/components/event-inspector";
 import { GraphPanel } from "@/components/graph-panel";
 import {
   createBlankAgent,
+  createAgentFromTemplate,
+  duplicateAgent,
   getEnabledAgents,
   validateAgentTeam,
 } from "@/lib/agent-builder";
@@ -227,6 +229,70 @@ export function StudioApp() {
     ]);
   };
 
+  const handleAddAgentFromTemplate = (templateId: string) => {
+    const nextIndex = agents.length;
+
+    setAgents((current) => [
+      ...current,
+      createAgentFromTemplate(templateId, createId("agent"), {
+        accent: accentPalette[nextIndex % accentPalette.length],
+      }),
+    ]);
+  };
+
+  const handleDuplicateAgent = (agentId: string) => {
+    setAgents((current) => {
+      const index = current.findIndex((agent) => agent.id === agentId);
+
+      if (index < 0) {
+        return current;
+      }
+
+      const clonedAgent = duplicateAgent(current[index], createId("agent"));
+      clonedAgent.accent = accentPalette[current.length % accentPalette.length];
+
+      return [
+        ...current.slice(0, index + 1),
+        clonedAgent,
+        ...current.slice(index + 1),
+      ];
+    });
+  };
+
+  const handleMoveAgent = (agentId: string, direction: "up" | "down") => {
+    setAgents((current) => {
+      const index = current.findIndex((agent) => agent.id === agentId);
+
+      if (index < 0) {
+        return current;
+      }
+
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+
+      if (targetIndex < 0 || targetIndex >= current.length) {
+        return current;
+      }
+
+      const nextAgents = [...current];
+      const [agent] = nextAgents.splice(index, 1);
+      nextAgents.splice(targetIndex, 0, agent);
+      return nextAgents;
+    });
+  };
+
+  const handleToggleAgent = (agentId: string) => {
+    setAgents((current) =>
+      current.map((agent) =>
+        agent.id === agentId ? { ...agent, enabled: !agent.enabled } : agent,
+      ),
+    );
+
+    if (selectedNodeId === agentId) {
+      setSelectedNodeId("dispatcher");
+      setSelectedTaskId(undefined);
+    }
+  };
+
   const handleRemoveAgent = (agentId: string) => {
     setAgents((current) =>
       current.length === 1
@@ -440,9 +506,14 @@ export function StudioApp() {
             onDispatcherChange={handleDispatcherChange}
             onAgentChange={handleAgentChange}
             onAddAgent={handleAddAgent}
+            onAddAgentFromTemplate={handleAddAgentFromTemplate}
+            onDuplicateAgent={handleDuplicateAgent}
+            onMoveAgent={handleMoveAgent}
+            onToggleAgent={handleToggleAgent}
             onRemoveAgent={handleRemoveAgent}
             onResetDefaults={handleResetDefaults}
             providerHealthById={providerHealthById}
+            validationIssues={teamValidationIssues}
           />
 
           <ChatPanel

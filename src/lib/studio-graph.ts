@@ -21,6 +21,7 @@ export type NodeSnapshot = {
   detail: string;
   latestInput?: string;
   latestOutput?: string;
+  capabilities: string[];
   warnings: string[];
   warningCodes: OrchestrationErrorCode[];
   errorCode?: OrchestrationErrorCode;
@@ -61,6 +62,7 @@ function createUserSnapshot(): NodeSnapshot {
     accent: "#22c55e",
     currentTask: "Waiting for input",
     detail: "Submit a prompt to start the run.",
+    capabilities: [],
     warnings: [],
     warningCodes: [],
   };
@@ -78,6 +80,7 @@ function createDispatcherSnapshot(dispatcher: DispatcherConfig): NodeSnapshot {
     accent: "#38bdf8",
     currentTask: "Ready to route work",
     detail: "Breaks down requests and synthesizes specialist reports.",
+    capabilities: [],
     warnings: [],
     warningCodes: [],
   };
@@ -95,6 +98,7 @@ function createAgentSnapshot(agent: AgentConfig): NodeSnapshot {
     accent: agent.accent,
     currentTask: agent.specialty,
     detail: agent.specialty,
+    capabilities: agent.capabilities,
     warnings: [],
     warningCodes: [],
   };
