@@ -45,6 +45,11 @@ const statusPalette: Record<
     chip: "#16a34a",
     glow: "0 0 0 1px rgba(34, 197, 94, 0.3)",
   },
+  cancelled: {
+    border: "rgba(148, 163, 184, 0.92)",
+    chip: "#64748b",
+    glow: "0 0 0 1px rgba(148, 163, 184, 0.25)",
+  },
   error: {
     border: "rgba(239, 68, 68, 0.95)",
     chip: "#dc2626",

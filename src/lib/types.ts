@@ -10,6 +10,7 @@ export type NodeStatus =
   | "running"
   | "synthesizing"
   | "completed"
+  | "cancelled"
   | "error";
 
 export const llmSelectionSchema = z.object({
@@ -45,6 +46,7 @@ export const planTaskSchema = z.object({
   title: z.string().min(1),
   objective: z.string().min(1),
   expectedOutput: z.string().min(1),
+  dependsOn: z.array(z.string().min(1)).max(7).default([]),
 });
 
 export const dispatcherPlanSchema = z.object({
@@ -53,11 +55,29 @@ export const dispatcherPlanSchema = z.object({
   synthesisFocus: z.array(z.string().min(1)).min(1).max(6),
 });
 
+export const orchestrationRuntimeOptionsSchema = z.object({
+  maxParallelTasks: z.number().int().min(1).max(4).default(2),
+  maxTaskRetries: z.number().int().min(0).max(3).default(1),
+  taskTimeoutMs: z.number().int().min(1_000).max(120_000).default(45_000),
+  dispatcherTimeoutMs: z
+    .number()
+    .int()
+    .min(1_000)
+    .max(120_000)
+    .default(45_000),
+});
+
 export const orchestrationRequestSchema = z.object({
   prompt: z.string().min(1),
   messages: z.array(conversationMessageSchema).default([]),
   dispatcher: dispatcherConfigSchema,
   agents: z.array(agentConfigSchema).min(1).max(8),
+  runtime: orchestrationRuntimeOptionsSchema.default({
+    maxParallelTasks: 2,
+    maxTaskRetries: 1,
+    taskTimeoutMs: 45_000,
+    dispatcherTimeoutMs: 45_000,
+  }),
 });
 
 export type LlmSelection = z.infer<typeof llmSelectionSchema>;
@@ -67,6 +87,9 @@ export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
 export type PlanTask = z.infer<typeof planTaskSchema>;
 export type DispatcherPlan = z.infer<typeof dispatcherPlanSchema>;
 export type OrchestrationRequest = z.infer<typeof orchestrationRequestSchema>;
+export type OrchestrationRuntimeOptions = z.infer<
+  typeof orchestrationRuntimeOptionsSchema
+>;
 
 export type ProviderExecutionMeta = {
   requestedProvider: ProviderId;
@@ -96,6 +119,8 @@ export type NodeStatusEvent = EventBase & {
   status: NodeStatus;
   title: string;
   detail: string;
+  taskId?: string;
+  attempt?: number;
   input?: string;
   output?: string;
   provider?: ProviderExecutionMeta;
@@ -116,6 +141,7 @@ export type AgentResultEvent = EventBase & {
   type: "agent-result";
   nodeId: string;
   task: PlanTask;
+  attempt: number;
   input: string;
   output: string;
   provider: ProviderExecutionMeta;
@@ -139,6 +165,14 @@ export type ProviderWarningEvent = EventBase & {
 
 export type RunCompleteEvent = EventBase & {
   type: "run-complete";
+  nodeId: "dispatcher";
+  message: string;
+};
+
+export type RunCancelledEvent = EventBase & {
+  type: "run-cancelled";
+  nodeId: "dispatcher";
+  message: string;
 };
 
 export type RunErrorEvent = EventBase & {
@@ -155,4 +189,5 @@ export type OrchestrationEvent =
   | FinalResponseEvent
   | ProviderWarningEvent
   | RunCompleteEvent
+  | RunCancelledEvent
   | RunErrorEvent;

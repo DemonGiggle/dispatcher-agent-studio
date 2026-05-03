@@ -40,7 +40,9 @@ export async function POST(request: Request): Promise<Response> {
 
   void (async () => {
     try {
-      await runOrchestration(parsed.data, writeEvent);
+      await runOrchestration(parsed.data, writeEvent, {
+        abortSignal: request.signal,
+      });
     } catch (error) {
       await writeEvent({
         type: "run-error",

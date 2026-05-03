@@ -2,6 +2,7 @@ import type {
   AgentConfig,
   ConversationMessage,
   DispatcherConfig,
+  OrchestrationRuntimeOptions,
 } from "@/lib/types";
 
 export const defaultDispatcher: DispatcherConfig = {
@@ -71,6 +72,13 @@ export const samplePrompts = [
   "我要做一個內部 dashboard，幫我拆成資料、權限、前端互動三個面向。",
 ];
 
+export const defaultRuntimeOptions: OrchestrationRuntimeOptions = {
+  maxParallelTasks: 2,
+  maxTaskRetries: 1,
+  taskTimeoutMs: 45_000,
+  dispatcherTimeoutMs: 45_000,
+};
+
 export function cloneDispatcherConfig(): DispatcherConfig {
   return { ...defaultDispatcher };
 }
@@ -81,4 +89,8 @@ export function cloneAgentConfigs(): AgentConfig[] {
 
 export function cloneStarterMessages(): ConversationMessage[] {
   return starterMessages.map((message) => ({ ...message }));
+}
+
+export function cloneRuntimeOptions(): OrchestrationRuntimeOptions {
+  return { ...defaultRuntimeOptions };
 }

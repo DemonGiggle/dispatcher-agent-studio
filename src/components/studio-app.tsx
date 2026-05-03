@@ -10,6 +10,7 @@ import { GraphPanel } from "@/components/graph-panel";
 import {
   cloneAgentConfigs,
   cloneDispatcherConfig,
+  cloneRuntimeOptions,
   cloneStarterMessages,
   samplePrompts,
 } from "@/lib/defaults";
@@ -20,6 +21,7 @@ import type {
   DispatcherConfig,
   OrchestrationEvent,
   OrchestrationRequest,
+  OrchestrationRuntimeOptions,
 } from "@/lib/types";
 
 const accentPalette = ["#38bdf8", "#7c3aed", "#f97316", "#22c55e", "#ec4899"];
@@ -47,7 +49,9 @@ function buildStatusText(event: OrchestrationEvent): string {
     case "provider-warning":
       return event.message;
     case "run-complete":
-      return "Run complete.";
+      return event.message;
+    case "run-cancelled":
+      return event.message;
     case "run-error":
       return event.message;
   }
@@ -107,6 +111,7 @@ export function StudioApp() {
   const [agents, setAgents] = useState<AgentConfig[]>(cloneAgentConfigs);
   const [messages, setMessages] = useState<ConversationMessage[]>(cloneMessages);
   const [events, setEvents] = useState<OrchestrationEvent[]>([]);
+  const [runtime] = useState<OrchestrationRuntimeOptions>(cloneRuntimeOptions);
   const [draft, setDraft] = useState(samplePrompts[0] ?? "");
   const [selectedNodeId, setSelectedNodeId] = useState("dispatcher");
   const [statusText, setStatusText] = useState("Ready for a new request.");
@@ -214,6 +219,7 @@ export function StudioApp() {
           messages: nextMessages,
           dispatcher,
           agents,
+          runtime,
         },
         (event) => {
           setEvents((current) => [...current, event]);
@@ -231,6 +237,10 @@ export function StudioApp() {
           if (event.type === "run-error") {
             setErrorText(event.message);
             setSelectedNodeId(event.nodeId);
+          }
+
+          if (event.type === "run-cancelled") {
+            setSelectedNodeId("dispatcher");
           }
         },
       );

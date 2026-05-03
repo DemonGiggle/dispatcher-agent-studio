@@ -1,6 +1,7 @@
 import type {
   AgentConfig,
   DispatcherConfig,
+  NodeStatus,
   OrchestrationEvent,
   PlanTask,
   ProviderExecutionMeta,
@@ -11,14 +12,7 @@ export type NodeSnapshot = {
   label: string;
   subtitle: string;
   kind: "user" | "dispatcher" | "agent";
-  status:
-    | "idle"
-    | "planning"
-    | "queued"
-    | "running"
-    | "synthesizing"
-    | "completed"
-    | "error";
+  status: NodeStatus;
   provider: string;
   model: string;
   accent: string;
@@ -180,6 +174,14 @@ export function deriveRunSnapshot(
       snapshot.providerMeta = event.provider;
       snapshot.provider = event.provider.effectiveProvider;
       snapshot.model = event.provider.effectiveModel;
+      continue;
+    }
+
+    if (event.type === "run-cancelled") {
+      const snapshot = nodeSnapshots.dispatcher;
+      snapshot.status = "cancelled";
+      snapshot.currentTask = "Run cancelled";
+      snapshot.detail = event.message;
       continue;
     }
 
