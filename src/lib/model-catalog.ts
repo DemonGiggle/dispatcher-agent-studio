@@ -14,6 +14,15 @@ export type ProviderCatalogEntry = {
   models: ModelCatalogEntry[];
 };
 
+export type ProviderReadinessStatus = "mock" | "configured" | "missing-key";
+
+export type ProviderHealthEntry = {
+  providerId: ProviderId;
+  envVar?: string;
+  configured: boolean;
+  status: ProviderReadinessStatus;
+};
+
 export const providerCatalog: Record<ProviderId, ProviderCatalogEntry> = {
   mock: {
     id: "mock",
@@ -142,4 +151,39 @@ export function getDefaultModel(providerId: ProviderId): string {
 
 export function isSupportedModel(providerId: ProviderId, modelId: string): boolean {
   return providerCatalog[providerId].models.some((model) => model.id === modelId);
+}
+
+export function getModelEntry(
+  providerId: ProviderId,
+  modelId: string,
+): ModelCatalogEntry | undefined {
+  return providerCatalog[providerId].models.find((model) => model.id === modelId);
+}
+
+export function getDefaultProviderHealth(): Record<ProviderId, ProviderHealthEntry> {
+  return {
+    mock: {
+      providerId: "mock",
+      configured: true,
+      status: "mock",
+    },
+    openai: {
+      providerId: "openai",
+      envVar: providerCatalog.openai.envVar,
+      configured: false,
+      status: "missing-key",
+    },
+    anthropic: {
+      providerId: "anthropic",
+      envVar: providerCatalog.anthropic.envVar,
+      configured: false,
+      status: "missing-key",
+    },
+    google: {
+      providerId: "google",
+      envVar: providerCatalog.google.envVar,
+      configured: false,
+      status: "missing-key",
+    },
+  };
 }

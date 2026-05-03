@@ -3,12 +3,15 @@
 import { RotateCcw, Sparkles, Trash2 } from "lucide-react";
 
 import {
+  getDefaultProviderHealth,
   getDefaultModel,
+  getModelEntry,
   getProviderEntry,
   getProviderModels,
+  type ProviderHealthEntry,
   providerOptions,
 } from "@/lib/model-catalog";
-import type { AgentConfig, DispatcherConfig } from "@/lib/types";
+import type { AgentConfig, DispatcherConfig, ProviderId } from "@/lib/types";
 
 type ConfigPanelProps = {
   dispatcher: DispatcherConfig;
@@ -26,6 +29,7 @@ type ConfigPanelProps = {
   onAddAgent: () => void;
   onRemoveAgent: (agentId: string) => void;
   onResetDefaults: () => void;
+  providerHealthById: Record<ProviderId, ProviderHealthEntry>;
 };
 
 type FieldProps = {
@@ -48,6 +52,35 @@ function inputClassName() {
   return "w-full rounded-xl border border-white/10 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/10";
 }
 
+function renderProviderHealth(
+  providerId: ProviderId,
+  providerHealthById: Record<ProviderId, ProviderHealthEntry>,
+) {
+  const health = providerHealthById[providerId] ?? getDefaultProviderHealth()[providerId];
+
+  if (health.status === "mock") {
+    return (
+      <span className="rounded-full border border-slate-400/20 bg-slate-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-slate-200">
+        mock fallback
+      </span>
+    );
+  }
+
+  if (health.status === "configured") {
+    return (
+      <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-100">
+        credentials ready
+      </span>
+    );
+  }
+
+  return (
+    <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-amber-100">
+      missing key
+    </span>
+  );
+}
+
 export function ConfigPanel({
   dispatcher,
   agents,
@@ -57,9 +90,11 @@ export function ConfigPanel({
   onAddAgent,
   onRemoveAgent,
   onResetDefaults,
+  providerHealthById,
 }: ConfigPanelProps) {
   const dispatcherProviderEntry = getProviderEntry(dispatcher.provider);
   const dispatcherModels = getProviderModels(dispatcher.provider);
+  const dispatcherModelEntry = getModelEntry(dispatcher.provider, dispatcher.model);
 
   return (
     <div className="space-y-4">
@@ -88,6 +123,7 @@ export function ConfigPanel({
           <div className="mb-3 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-cyan-300" />
             <p className="text-sm font-semibold text-slate-100">Dispatcher</p>
+            {renderProviderHealth(dispatcher.provider, providerHealthById)}
           </div>
 
           <div className="grid gap-3">
@@ -149,6 +185,14 @@ export function ConfigPanel({
               <p className="mt-1 text-slate-400">
                 {dispatcherProviderEntry.description}
               </p>
+              <p className="mt-2 text-slate-500">
+                Model: {dispatcherModelEntry?.description ?? dispatcher.model}
+              </p>
+              {dispatcherProviderEntry.envVar ? (
+                <p className="mt-2 text-slate-500">
+                  Env: {dispatcherProviderEntry.envVar}
+                </p>
+              ) : null}
             </div>
 
             <Field label="Temperature">
@@ -207,6 +251,7 @@ export function ConfigPanel({
             (() => {
               const providerEntry = getProviderEntry(agent.provider);
               const providerModels = getProviderModels(agent.provider);
+              const providerModelEntry = getModelEntry(agent.provider, agent.model);
 
               return (
             <section
@@ -227,6 +272,7 @@ export function ConfigPanel({
                     <p className="text-xs text-slate-400">{agent.role}</p>
                   </div>
                 </div>
+                {renderProviderHealth(agent.provider, providerHealthById)}
 
                 <button
                   type="button"
@@ -324,6 +370,14 @@ export function ConfigPanel({
                   <p className="mt-1 text-slate-400">
                     {providerEntry.description}
                   </p>
+                  <p className="mt-2 text-slate-500">
+                    Model: {providerModelEntry?.description ?? agent.model}
+                  </p>
+                  {providerEntry.envVar ? (
+                    <p className="mt-2 text-slate-500">
+                      Env: {providerEntry.envVar}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
