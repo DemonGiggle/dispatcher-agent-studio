@@ -27,9 +27,26 @@ export type NodeSnapshot = {
   providerMeta?: ProviderExecutionMeta;
 };
 
+export type TaskSnapshot = {
+  id: string;
+  title: string;
+  objective: string;
+  expectedOutput: string;
+  agentId: string;
+  agentName: string;
+  agentAccent: string;
+  dependsOn: string[];
+  status: NodeStatus;
+  detail: string;
+  attempt?: number;
+  latestInput?: string;
+  latestOutput?: string;
+};
+
 export type GraphSnapshot = {
   nodeSnapshots: Record<string, NodeSnapshot>;
   tasks: PlanTask[];
+  taskSnapshots: Record<string, TaskSnapshot>;
 };
 
 function createUserSnapshot(): NodeSnapshot {
@@ -83,6 +100,21 @@ function createAgentSnapshot(agent: AgentConfig): NodeSnapshot {
   };
 }
 
+function createTaskSnapshot(task: PlanTask, agent?: AgentConfig): TaskSnapshot {
+  return {
+    id: task.id,
+    title: task.title,
+    objective: task.objective,
+    expectedOutput: task.expectedOutput,
+    agentId: task.agentId,
+    agentName: agent?.name ?? task.agentId,
+    agentAccent: agent?.accent ?? "#38bdf8",
+    dependsOn: task.dependsOn,
+    status: "idle",
+    detail: task.objective,
+  };
+}
+
 export function deriveRunSnapshot(
   dispatcher: DispatcherConfig,
   agents: AgentConfig[],
@@ -92,6 +124,8 @@ export function deriveRunSnapshot(
     user: createUserSnapshot(),
     dispatcher: createDispatcherSnapshot(dispatcher),
   };
+  const taskSnapshots: Record<string, TaskSnapshot> = {};
+  const agentById = new Map(agents.map((agent) => [agent.id, agent] as const));
 
   for (const agent of agents) {
     nodeSnapshots[agent.id] = createAgentSnapshot(agent);
@@ -122,6 +156,19 @@ export function deriveRunSnapshot(
       snapshot.latestInput = event.input;
       snapshot.latestOutput = event.output;
       snapshot.providerMeta = event.provider;
+
+      if (event.taskId) {
+        const taskSnapshot = taskSnapshots[event.taskId];
+
+        if (taskSnapshot) {
+          taskSnapshot.status = event.status;
+          taskSnapshot.detail = event.detail;
+          taskSnapshot.attempt = event.attempt;
+          taskSnapshot.latestInput = event.input;
+          taskSnapshot.latestOutput = event.output ?? taskSnapshot.latestOutput;
+        }
+      }
+
       continue;
     }
 
@@ -144,6 +191,7 @@ export function deriveRunSnapshot(
 
     if (event.type === "task-assignment") {
       const snapshot = nodeSnapshots[event.nodeId];
+      const taskSnapshot = taskSnapshots[event.task.id];
 
       if (!snapshot) {
         continue;
@@ -152,6 +200,12 @@ export function deriveRunSnapshot(
       snapshot.status = "queued";
       snapshot.currentTask = event.task.title;
       snapshot.detail = event.detail;
+
+      if (taskSnapshot) {
+        taskSnapshot.status = "queued";
+        taskSnapshot.detail = event.detail;
+      }
+
       continue;
     }
 
@@ -170,12 +224,28 @@ export function deriveRunSnapshot(
       snapshot.providerMeta = event.provider;
       snapshot.provider = event.provider.effectiveProvider;
       snapshot.model = event.provider.effectiveModel;
+
+      if (event.taskId) {
+        const taskSnapshot = taskSnapshots[event.taskId];
+
+        if (taskSnapshot) {
+          taskSnapshot.status = "running";
+          taskSnapshot.detail = event.detail;
+          taskSnapshot.attempt = event.attempt;
+          taskSnapshot.latestInput = event.input;
+          taskSnapshot.latestOutput = event.aggregate;
+        }
+      }
+
       continue;
     }
 
     if (event.type === "dispatcher-plan") {
       const snapshot = nodeSnapshots.dispatcher;
       tasks = event.tasks;
+      for (const task of event.tasks) {
+        taskSnapshots[task.id] = createTaskSnapshot(task, agentById.get(task.agentId));
+      }
       snapshot.status = "queued";
       snapshot.currentTask = "Dispatch complete";
       snapshot.detail = event.summary;
@@ -189,6 +259,7 @@ export function deriveRunSnapshot(
 
     if (event.type === "agent-result") {
       const snapshot = nodeSnapshots[event.nodeId];
+      const taskSnapshot = taskSnapshots[event.task.id];
 
       if (!snapshot) {
         continue;
@@ -202,6 +273,15 @@ export function deriveRunSnapshot(
       snapshot.providerMeta = event.provider;
       snapshot.provider = event.provider.effectiveProvider;
       snapshot.model = event.provider.effectiveModel;
+
+      if (taskSnapshot) {
+        taskSnapshot.status = "completed";
+        taskSnapshot.detail = event.task.objective;
+        taskSnapshot.attempt = event.attempt;
+        taskSnapshot.latestInput = event.input;
+        taskSnapshot.latestOutput = event.output;
+      }
+
       continue;
     }
 
@@ -238,8 +318,15 @@ export function deriveRunSnapshot(
       snapshot.currentTask = "Run failed";
       snapshot.detail = event.message;
       snapshot.errorCode = event.errorCode;
+
+      for (const taskSnapshot of Object.values(taskSnapshots)) {
+        if (taskSnapshot.agentId === event.nodeId && taskSnapshot.status !== "completed") {
+          taskSnapshot.status = "error";
+          taskSnapshot.detail = event.message;
+        }
+      }
     }
   }
 
-  return { nodeSnapshots, tasks };
+  return { nodeSnapshots, tasks, taskSnapshots };
 }
