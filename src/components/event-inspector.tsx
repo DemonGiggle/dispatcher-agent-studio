@@ -7,6 +7,7 @@ type EventInspectorProps = {
   snapshot: GraphSnapshot;
   events: OrchestrationEvent[];
   selectedNodeId: string;
+  selectedTaskId?: string;
 };
 
 function formatEventHeading(event: OrchestrationEvent): string {
@@ -77,9 +78,35 @@ export function EventInspector({
   snapshot,
   events,
   selectedNodeId,
+  selectedTaskId,
 }: EventInspectorProps) {
   const selectedNode = snapshot.nodeSnapshots[selectedNodeId];
+  const selectedTask = selectedTaskId
+    ? snapshot.taskSnapshots[selectedTaskId]
+    : undefined;
+  const latestInput = selectedTask?.latestInput ?? selectedNode.latestInput;
+  const latestOutput = selectedTask?.latestOutput ?? selectedNode.latestOutput;
   const relatedEvents = events.filter((event) => {
+    if (selectedTask) {
+      if (event.type === "dispatcher-plan") {
+        return event.tasks.some((task) => task.id === selectedTask.id);
+      }
+
+      if (event.type === "task-assignment" || event.type === "agent-result") {
+        return event.task.id === selectedTask.id;
+      }
+
+      if (event.type === "node-status" || event.type === "node-chunk") {
+        return event.taskId === selectedTask.id;
+      }
+
+      if (event.type === "provider-warning" || event.type === "run-error") {
+        return event.nodeId === selectedTask.agentId;
+      }
+
+      return false;
+    }
+
     if (event.type === "run-start") {
       return selectedNodeId === "user" || selectedNodeId === "dispatcher";
     }
@@ -96,12 +123,49 @@ export function EventInspector({
       <div className="border-b border-white/10 px-5 py-4">
         <h2 className="text-sm font-semibold text-slate-50">Inspector</h2>
         <p className="text-xs text-slate-400">
-          Inspect the selected node&apos;s current input, output, and event trail.
+          Inspect the selected node or task and follow the run event trail in sync.
         </p>
       </div>
 
       <div className="grid gap-4 p-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
         <div className="space-y-4">
+          {selectedTask ? (
+            <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-50">
+                    {selectedTask.title}
+                  </p>
+                  <p className="text-xs text-slate-300">
+                    {selectedTask.agentName} · task node
+                  </p>
+                </div>
+                <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-100">
+                  {selectedTask.status}
+                </span>
+              </div>
+
+              <dl className="space-y-3 text-xs">
+                <div>
+                  <dt className="mb-1 text-cyan-100/70">Objective</dt>
+                  <dd className="text-slate-100">{selectedTask.objective}</dd>
+                </div>
+                <div>
+                  <dt className="mb-1 text-cyan-100/70">Expected output</dt>
+                  <dd className="text-slate-100">{selectedTask.expectedOutput}</dd>
+                </div>
+                <div>
+                  <dt className="mb-1 text-cyan-100/70">Dependencies</dt>
+                  <dd className="text-slate-100">
+                    {selectedTask.dependsOn.length === 0
+                      ? "None"
+                      : selectedTask.dependsOn.join(", ")}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          ) : null}
+
           <div className="rounded-2xl border border-white/10 bg-white/4 p-4">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
@@ -153,7 +217,7 @@ export function EventInspector({
                 Latest input
               </p>
               <pre className="max-h-56 overflow-auto whitespace-pre-wrap text-xs text-slate-300">
-                {selectedNode.latestInput ?? "No input captured for this node yet."}
+                {latestInput ?? "No input captured for this selection yet."}
               </pre>
             </div>
 
@@ -162,7 +226,7 @@ export function EventInspector({
                 Latest output
               </p>
               <pre className="max-h-56 overflow-auto whitespace-pre-wrap text-xs text-slate-300">
-                {selectedNode.latestOutput ?? "No output captured for this node yet."}
+                {latestOutput ?? "No output captured for this selection yet."}
               </pre>
             </div>
           </div>
@@ -176,7 +240,7 @@ export function EventInspector({
           <div className="max-h-[500px] space-y-3 overflow-auto pr-1">
             {relatedEvents.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-4 text-sm text-slate-400">
-                No events yet for this node.
+                No events yet for this selection.
               </div>
             ) : (
               [...relatedEvents].reverse().map((event) => (

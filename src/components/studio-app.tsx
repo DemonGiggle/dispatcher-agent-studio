@@ -148,6 +148,7 @@ export function StudioApp() {
   const [runtime] = useState<OrchestrationRuntimeOptions>(cloneRuntimeOptions);
   const [draft, setDraft] = useState(samplePrompts[0] ?? "");
   const [selectedNodeId, setSelectedNodeId] = useState("dispatcher");
+  const [selectedTaskId, setSelectedTaskId] = useState<string>();
   const [statusText, setStatusText] = useState("Ready for a new request.");
   const [errorText, setErrorText] = useState<string>();
   const [runAlert, setRunAlert] = useState<RunAlert>();
@@ -247,6 +248,7 @@ export function StudioApp() {
     setEvents([]);
     setDraft(samplePrompts[0] ?? "");
     setSelectedNodeId("dispatcher");
+    setSelectedTaskId(undefined);
     setStatusText("Ready for a new request.");
     setErrorText(undefined);
     setRunAlert(undefined);
@@ -276,6 +278,7 @@ export function StudioApp() {
     setRunAlert(undefined);
     setStatusText("Dispatcher is planning the run...");
     setSelectedNodeId("dispatcher");
+    setSelectedTaskId(undefined);
     setIsRunning(true);
 
     let finalResponse: string | undefined;
@@ -293,17 +296,25 @@ export function StudioApp() {
           setEvents((current) => [...current, event]);
           setStatusText(buildStatusText(event));
 
+          if (event.type === "task-assignment") {
+            setSelectedNodeId(event.nodeId);
+            setSelectedTaskId(event.task.id);
+          }
+
           if (event.type === "node-chunk") {
             setSelectedNodeId(event.nodeId);
+            setSelectedTaskId(event.taskId);
           }
 
           if (event.type === "agent-result") {
             setSelectedNodeId(event.nodeId);
+            setSelectedTaskId(event.task.id);
           }
 
           if (event.type === "final-response") {
             finalResponse = event.response;
             setSelectedNodeId("dispatcher");
+            setSelectedTaskId(undefined);
           }
 
           if (event.type === "run-error") {
@@ -315,6 +326,7 @@ export function StudioApp() {
               code: event.errorCode,
             });
             setSelectedNodeId(event.nodeId);
+            setSelectedTaskId(undefined);
           }
 
           if (event.type === "run-cancelled") {
@@ -325,6 +337,7 @@ export function StudioApp() {
               code: event.errorCode,
             });
             setSelectedNodeId("dispatcher");
+            setSelectedTaskId(undefined);
           }
         },
       );
@@ -441,12 +454,21 @@ export function StudioApp() {
             <GraphPanel
               snapshot={snapshot}
               selectedNodeId={selectedNodeId}
-              onSelectNode={setSelectedNodeId}
+              selectedTaskId={selectedTaskId}
+              onSelectNode={(nodeId) => {
+                setSelectedNodeId(nodeId);
+                setSelectedTaskId(undefined);
+              }}
+              onSelectTask={(taskId) => {
+                setSelectedTaskId(taskId);
+                setSelectedNodeId(snapshot.taskSnapshots[taskId]?.agentId ?? "dispatcher");
+              }}
             />
             <EventInspector
               snapshot={snapshot}
               events={events}
               selectedNodeId={selectedNodeId}
+              selectedTaskId={selectedTaskId}
             />
           </div>
         </main>
