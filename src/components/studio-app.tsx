@@ -990,6 +990,7 @@ export function StudioApp() {
           >
             <GraphPanel
               snapshot={snapshot}
+              isActive={activeTab === "inspect"}
               selectedNodeId={selectedNodeId}
               selectedTaskId={selectedTaskId}
               onSelectNode={(nodeId) => {

@@ -8,16 +8,19 @@ import {
   ReactFlow,
   type ReactFlowInstance,
   type Edge,
+  useNodesState,
 } from "@xyflow/react";
 import { Focus, ScanSearch } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { AgentNode, type AgentGraphNode } from "@/components/agent-node";
 import { TaskNode, type TaskGraphNode } from "@/components/task-node";
+import { calculateGraphLayout } from "@/lib/graph-layout";
 import type { GraphSnapshot, TaskSnapshot } from "@/lib/studio-graph";
 
 type GraphPanelProps = {
   snapshot: GraphSnapshot;
+  isActive: boolean;
   selectedNodeId: string;
   selectedTaskId?: string;
   onSelectNode: (nodeId: string) => void;
@@ -28,23 +31,6 @@ type FlowNode = AgentGraphNode | TaskGraphNode;
 
 const focusRingClass =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950";
-
-function buildGridPosition(
-  index: number,
-  columns: number,
-  startX: number,
-  startY: number,
-  columnWidth: number,
-  rowHeight: number,
-) {
-  const row = Math.floor(index / columns);
-  const column = index % columns;
-
-  return {
-    x: startX + column * columnWidth,
-    y: startY + row * rowHeight,
-  };
-}
 
 function edgePalette(status: TaskSnapshot["status"]) {
   switch (status) {
@@ -65,6 +51,7 @@ function edgePalette(status: TaskSnapshot["status"]) {
 
 export function GraphPanel({
   snapshot,
+  isActive,
   selectedNodeId,
   selectedTaskId,
   onSelectNode,
@@ -87,19 +74,10 @@ export function GraphPanel({
     [snapshot.nodeSnapshots],
   );
 
-  const taskColumns = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(taskSnapshots.length || 1))));
-  const taskRows = Math.max(1, Math.ceil(taskSnapshots.length / taskColumns));
-  const agentColumns = Math.max(
-    1,
-    Math.min(4, Math.ceil(Math.sqrt(agentSnapshots.length || 1))),
+  const layout = useMemo(
+    () => calculateGraphLayout(taskSnapshots.length, agentSnapshots.length),
+    [agentSnapshots.length, taskSnapshots.length],
   );
-  const agentRows = Math.max(1, Math.ceil(agentSnapshots.length / agentColumns));
-  const widestColumns = Math.max(2, taskColumns, agentColumns);
-  const dispatcherX = 220 + (widestColumns - 1) * 155;
-  const agentStartY = 390 + (taskRows - 1) * 170;
-  const calculatedCanvasHeight =
-    520 + Math.max(0, agentRows - 1) * 220 + Math.max(0, taskRows - 1) * 110;
-  const canvasHeight = Math.max(420, Math.min(920, calculatedCanvasHeight));
   const selectedNodeSnapshot = snapshot.nodeSnapshots[selectedNodeId];
   const selectedTaskSnapshot = selectedTaskId
     ? snapshot.taskSnapshots[selectedTaskId]
@@ -114,11 +92,12 @@ export function GraphPanel({
         node.warningCodes.length > 0,
     );
 
-  const flowNodes = useMemo<FlowNode[]>(() => {
+  const layoutNodes = useMemo<FlowNode[]>(() => {
     const taskNodes: TaskGraphNode[] = taskSnapshots.map((task, index) => ({
       id: task.id,
       type: "taskCard",
-      position: buildGridPosition(index, taskColumns, 90, 210, 310, 170),
+      position: layout.taskPositions[index] ?? { x: 120, y: 220 },
+      dragHandle: ".graph-node-drag-handle",
       data: {
         ...task,
         selected: selectedTaskId === task.id,
@@ -129,7 +108,8 @@ export function GraphPanel({
     const agentNodes: AgentGraphNode[] = agentSnapshots.map((node, index) => ({
       id: node.id,
       type: "agentCard",
-      position: buildGridPosition(index, agentColumns, 50, agentStartY, 320, 220),
+      position: layout.agentPositions[index] ?? { x: 80, y: 400 },
+      dragHandle: ".graph-node-drag-handle",
       data: {
         ...node,
         selected: selectedNodeId === node.id,
@@ -141,7 +121,8 @@ export function GraphPanel({
       {
         id: "user",
         type: "agentCard",
-        position: { x: Math.max(20, dispatcherX - 330), y: 36 },
+        position: layout.userPosition,
+        dragHandle: ".graph-node-drag-handle",
         data: {
           ...snapshot.nodeSnapshots.user,
           selected: selectedNodeId === "user",
@@ -151,7 +132,8 @@ export function GraphPanel({
       {
         id: "dispatcher",
         type: "agentCard",
-        position: { x: dispatcherX, y: 36 },
+        position: layout.dispatcherPosition,
+        dragHandle: ".graph-node-drag-handle",
         data: {
           ...snapshot.nodeSnapshots.dispatcher,
           selected: selectedNodeId === "dispatcher",
@@ -164,18 +146,54 @@ export function GraphPanel({
 
     return nodes;
   }, [
-    agentColumns,
     agentSnapshots,
-    agentStartY,
-    dispatcherX,
+    layout.agentPositions,
+    layout.dispatcherPosition,
+    layout.taskPositions,
+    layout.userPosition,
     onSelectNode,
     onSelectTask,
     selectedNodeId,
     selectedTaskId,
     snapshot.nodeSnapshots,
-    taskColumns,
     taskSnapshots,
   ]);
+
+  const [flowNodes, setFlowNodes, onFlowNodesChange] = useNodesState<FlowNode>(layoutNodes);
+
+  useEffect(() => {
+    setFlowNodes((currentNodes) => {
+      const currentNodeById = new Map(currentNodes.map((node) => [node.id, node] as const));
+
+      return layoutNodes.map((node) => {
+        const existingNode = currentNodeById.get(node.id);
+
+        return existingNode
+          ? {
+              ...node,
+              position: existingNode.position,
+            }
+          : node;
+      });
+    });
+  }, [layoutNodes, setFlowNodes]);
+
+  const layoutSignature = useMemo(
+    () => layoutNodes.map((node) => node.id).join("|"),
+    [layoutNodes],
+  );
+
+  useEffect(() => {
+    if (!isActive || !flowInstance || flowNodes.length === 0) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void flowInstance.fitView({ duration: 260, padding: 0.18 });
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [flowInstance, flowNodes.length, isActive, layoutSignature]);
 
   const flowEdges = useMemo<Edge[]>(() => {
     const edges: Edge[] = [
@@ -319,17 +337,18 @@ export function GraphPanel({
 
       <div className="border-b border-white/10 px-5 py-3 text-sm text-slate-300">
         {hasRunContent
-          ? "Use the graph to inspect orchestration state visually, then confirm the same state in the text summary below."
+          ? "Use the graph to inspect orchestration state visually, then drag cards by the handle to refine the layout when needed."
           : "Run or reopen a conversation to populate task routing, execution status, and worker reports."}
       </div>
 
-      <div style={{ height: `${canvasHeight}px` }} aria-label="Orchestration graph canvas">
+      <div style={{ height: `${layout.canvasHeight}px` }} aria-label="Orchestration graph canvas">
         <ReactFlow
           nodes={flowNodes}
           edges={flowEdges}
+          onNodesChange={onFlowNodesChange}
           onInit={setFlowInstance}
           nodeTypes={{ agentCard: AgentNode, taskCard: TaskNode }}
-          fitView
+          nodesDraggable
           proOptions={{ hideAttribution: true }}
           defaultEdgeOptions={{ type: "smoothstep" }}
         >
