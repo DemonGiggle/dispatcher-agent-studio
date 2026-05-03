@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Dispatcher Agent Studio
 
-## Getting Started
+A TypeScript web app for **dispatcher-led multi-agent LLM orchestration**. The first model acts as the dispatcher, splits the user request into specialist tasks, routes them to worker agents, collects the reports, and synthesizes the final answer.
 
-First, run the development server:
+## What it includes
+
+- **Chat-first workflow**: the user talks to the dispatcher through a web UI
+- **Provider/model configuration**: each agent can use a different provider and model
+- **Agent capability editor**: every worker declares its role, specialty, prompt, and visual identity
+- **Graph visualization**: see which node is doing what, plus task routing between dispatcher and workers
+- **Input/output inspector**: inspect each node's latest prompt, output, and event trail
+- **Mock fallback**: if a provider API key is missing, the run falls back to a mock provider and surfaces a visible warning
+
+## Stack
+
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- Vercel AI SDK
+- React Flow (`@xyflow/react`)
+- Zod
+
+## Environment variables
+
+Copy the example file and fill in whichever providers you want to use:
+
+```bash
+cp .env.example .env.local
+```
+
+```env
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+GOOGLE_GENERATIVE_AI_API_KEY=
+```
+
+You can leave keys empty while iterating on the UI. The app will explicitly warn and use the mock provider for that node.
+
+## Run locally
+
+```bash
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## Available scripts
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run lint
+npm run build
+npm run start
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Architecture overview
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. The **dispatcher** receives the conversation and latest user prompt.
+2. The dispatcher generates a **structured task plan** with agent assignments.
+3. Each **worker agent** executes its assigned task and returns a specialist report.
+4. The dispatcher **synthesizes** the worker outputs into one final response.
+5. The UI streams and visualizes each step as **graph state + event history**.
