@@ -4,6 +4,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { generateObject, generateText } from "ai";
 import { z } from "zod";
 
+import { getProviderEntry, isSupportedModel } from "@/lib/model-catalog";
 import type {
   LlmSelection,
   OrchestrationErrorCode,
@@ -142,6 +143,21 @@ function classifyProviderError(
   );
 }
 
+function assertSupportedModelSelection(selection: LlmSelection) {
+  if (isSupportedModel(selection.provider, selection.model)) {
+    return;
+  }
+
+  const providerEntry = getProviderEntry(selection.provider);
+
+  throw new ProviderExecutionError(
+    "unsupported-model",
+    selection.provider,
+    selection.model,
+    `Provider ${providerEntry.label} does not support model "${selection.model}". Choose one of the registered models in the provider catalog.`,
+  );
+}
+
 function getAbortReason(signal: AbortSignal, fallbackMessage: string) {
   if (signal.reason instanceof Error) {
     return signal.reason.name === "AbortError"
@@ -178,6 +194,8 @@ function pause(ms: number, signal?: AbortSignal) {
 }
 
 function resolveLanguageModel(selection: LlmSelection): ResolvedModel {
+  assertSupportedModelSelection(selection);
+
   if (selection.provider === "mock") {
     return {
       kind: "mock",

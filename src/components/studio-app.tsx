@@ -14,6 +14,7 @@ import {
   cloneStarterMessages,
   samplePrompts,
 } from "@/lib/defaults";
+import { getDefaultModel } from "@/lib/model-catalog";
 import { deriveRunSnapshot } from "@/lib/studio-graph";
 import type {
   AgentConfig,
@@ -178,7 +179,7 @@ export function StudioApp() {
         role: "Specialist",
         specialty: "Describe what this agent is best at.",
         provider: "mock",
-        model: "demo-specialist",
+        model: getDefaultModel("mock"),
         temperature: 0.45,
         systemPrompt:
           "You are a focused specialist. Return structured, practical recommendations for the assigned task.",

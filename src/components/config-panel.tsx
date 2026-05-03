@@ -2,7 +2,13 @@
 
 import { RotateCcw, Sparkles, Trash2 } from "lucide-react";
 
-import type { AgentConfig, DispatcherConfig, ProviderId } from "@/lib/types";
+import {
+  getDefaultModel,
+  getProviderEntry,
+  getProviderModels,
+  providerOptions,
+} from "@/lib/model-catalog";
+import type { AgentConfig, DispatcherConfig } from "@/lib/types";
 
 type ConfigPanelProps = {
   dispatcher: DispatcherConfig;
@@ -21,13 +27,6 @@ type ConfigPanelProps = {
   onRemoveAgent: (agentId: string) => void;
   onResetDefaults: () => void;
 };
-
-const providerOptions: Array<{ value: ProviderId; label: string }> = [
-  { value: "mock", label: "Mock" },
-  { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "google", label: "Google" },
-];
 
 type FieldProps = {
   label: string;
@@ -59,6 +58,9 @@ export function ConfigPanel({
   onRemoveAgent,
   onResetDefaults,
 }: ConfigPanelProps) {
+  const dispatcherProviderEntry = getProviderEntry(dispatcher.provider);
+  const dispatcherModels = getProviderModels(dispatcher.provider);
+
   return (
     <div className="space-y-4">
       <div className="rounded-[28px] border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-slate-950/30">
@@ -106,10 +108,11 @@ export function ConfigPanel({
                   className={inputClassName()}
                   value={dispatcher.provider}
                   onChange={(event) =>
-                    onDispatcherChange(
-                      "provider",
-                      event.target.value as DispatcherConfig["provider"],
-                    )
+                    (() => {
+                      const nextProvider = event.target.value as DispatcherConfig["provider"];
+                      onDispatcherChange("provider", nextProvider);
+                      onDispatcherChange("model", getDefaultModel(nextProvider));
+                    })()
                   }
                   disabled={disabled}
                 >
@@ -122,15 +125,30 @@ export function ConfigPanel({
               </Field>
 
               <Field label="Model">
-                <input
+                <select
                   className={inputClassName()}
                   value={dispatcher.model}
                   onChange={(event) =>
                     onDispatcherChange("model", event.target.value)
                   }
                   disabled={disabled}
-                />
+                >
+                  {dispatcherModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.label}
+                    </option>
+                  ))}
+                </select>
               </Field>
+            </div>
+
+            <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-slate-300">
+              <p className="font-medium text-slate-100">
+                {dispatcherProviderEntry.label}
+              </p>
+              <p className="mt-1 text-slate-400">
+                {dispatcherProviderEntry.description}
+              </p>
             </div>
 
             <Field label="Temperature">
@@ -186,6 +204,11 @@ export function ConfigPanel({
 
         <div className="space-y-4">
           {agents.map((agent) => (
+            (() => {
+              const providerEntry = getProviderEntry(agent.provider);
+              const providerModels = getProviderModels(agent.provider);
+
+              return (
             <section
               key={agent.id}
               className="rounded-2xl border border-white/10 bg-white/4 p-4"
@@ -258,11 +281,15 @@ export function ConfigPanel({
                       className={inputClassName()}
                       value={agent.provider}
                       onChange={(event) =>
-                        onAgentChange(
-                          agent.id,
-                          "provider",
-                          event.target.value as AgentConfig["provider"],
-                        )
+                        (() => {
+                          const nextProvider = event.target.value as AgentConfig["provider"];
+                          onAgentChange(agent.id, "provider", nextProvider);
+                          onAgentChange(
+                            agent.id,
+                            "model",
+                            getDefaultModel(nextProvider),
+                          );
+                        })()
                       }
                       disabled={disabled}
                     >
@@ -275,15 +302,28 @@ export function ConfigPanel({
                   </Field>
 
                   <Field label="Model">
-                    <input
+                    <select
                       className={inputClassName()}
                       value={agent.model}
                       onChange={(event) =>
                         onAgentChange(agent.id, "model", event.target.value)
                       }
                       disabled={disabled}
-                    />
+                    >
+                      {providerModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
                   </Field>
+                </div>
+
+                <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-slate-300">
+                  <p className="font-medium text-slate-100">{providerEntry.label}</p>
+                  <p className="mt-1 text-slate-400">
+                    {providerEntry.description}
+                  </p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -331,6 +371,8 @@ export function ConfigPanel({
                 </Field>
               </div>
             </section>
+              );
+            })()
           ))}
         </div>
       </div>
