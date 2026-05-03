@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const providerIds = ["mock", "openai", "anthropic", "google"] as const;
+export const providerIds = ["mock", "ollama", "openai", "anthropic", "google"] as const;
 
 export type ProviderId = (typeof providerIds)[number];
 export const ORCHESTRATION_EVENT_SCHEMA_VERSION = 2;
