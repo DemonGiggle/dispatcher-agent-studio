@@ -327,6 +327,7 @@ export function ChatPanel({
 
           <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-4">
             <textarea
+              data-testid="chat-draft"
               className="min-h-32 w-full resize-y bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500"
               placeholder="Describe the task you want the dispatcher to decompose..."
               value={draft}
@@ -340,6 +341,7 @@ export function ChatPanel({
                 answer.
               </p>
               <button
+                data-testid="dispatch-button"
                 type="button"
                 onClick={onSubmit}
                 disabled={isRunning || draft.trim().length === 0}
