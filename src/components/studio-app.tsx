@@ -25,6 +25,18 @@ import {
   getDefaultProviderHealth,
   type ProviderHealthEntry,
 } from "@/lib/model-catalog";
+import {
+  cloneAgents,
+  cloneDispatcher,
+  cloneMessages as clonePersistedMessages,
+  deleteTeamRecord,
+  loadPersistedStudioState,
+  savePersistedStudioState,
+  saveRunRecord,
+  saveTeamRecord,
+  type SavedRunRecord,
+  type SavedTeamRecord,
+} from "@/lib/studio-persistence";
 import { deriveRunSnapshot } from "@/lib/studio-graph";
 import type {
   AgentConfig,
@@ -162,6 +174,9 @@ export function StudioApp() {
     Record<ProviderId, ProviderHealthEntry>
   >(getDefaultProviderHealth);
   const [isRunning, setIsRunning] = useState(false);
+  const [savedTeams, setSavedTeams] = useState<SavedTeamRecord[]>([]);
+  const [recentRuns, setRecentRuns] = useState<SavedRunRecord[]>([]);
+  const [hasLoadedPersistence, setHasLoadedPersistence] = useState(false);
   const enabledAgents = useMemo(() => getEnabledAgents(agents), [agents]);
   const teamValidationIssues = useMemo(() => validateAgentTeam(agents), [agents]);
 
@@ -169,6 +184,32 @@ export function StudioApp() {
     () => deriveRunSnapshot(dispatcher, enabledAgents, events),
     [dispatcher, enabledAgents, events],
   );
+
+  useEffect(() => {
+    const persistedState = loadPersistedStudioState();
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
+
+      if (persistedState.autosavedStudio) {
+        setDispatcher(persistedState.autosavedStudio.dispatcher);
+        setAgents(persistedState.autosavedStudio.agents);
+        setMessages(persistedState.autosavedStudio.messages);
+        setDraft(persistedState.autosavedStudio.draft);
+      }
+
+      setSavedTeams(persistedState.savedTeams);
+      setRecentRuns(persistedState.recentRuns);
+      setHasLoadedPersistence(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -197,6 +238,32 @@ export function StudioApp() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasLoadedPersistence) {
+      return;
+    }
+
+    savePersistedStudioState({
+      schemaVersion: 1,
+      autosavedStudio: {
+        dispatcher: cloneDispatcher(dispatcher),
+        agents: cloneAgents(agents),
+        messages: clonePersistedMessages(messages),
+        draft,
+      },
+      savedTeams,
+      recentRuns,
+    });
+  }, [
+    agents,
+    dispatcher,
+    draft,
+    hasLoadedPersistence,
+    messages,
+    recentRuns,
+    savedTeams,
+  ]);
 
   const handleDispatcherChange = <K extends keyof DispatcherConfig>(
     field: K,
@@ -293,6 +360,68 @@ export function StudioApp() {
     }
   };
 
+  const handleSaveCurrentTeam = (name: string) => {
+    const nextName = name.trim();
+
+    if (!nextName) {
+      return;
+    }
+
+    const savedAt = new Date().toISOString();
+    const matchingTeam = savedTeams.find(
+      (team) => team.name.trim().toLowerCase() === nextName.toLowerCase(),
+    );
+
+    setSavedTeams((current) =>
+      saveTeamRecord(current, {
+        id: matchingTeam?.id ?? createId("team"),
+        name: nextName,
+        savedAt,
+        dispatcher: cloneDispatcher(dispatcher),
+        agents: cloneAgents(agents),
+      }),
+    );
+    setRunAlert({
+      tone: "info",
+      title: "Team saved",
+      detail: `Saved "${nextName}" for reuse.`,
+    });
+  };
+
+  const handleLoadSavedTeam = (teamId: string) => {
+    const savedTeam = savedTeams.find((team) => team.id === teamId);
+
+    if (!savedTeam) {
+      return;
+    }
+
+    setDispatcher(savedTeam.dispatcher);
+    setAgents(savedTeam.agents);
+    setEvents([]);
+    setSelectedNodeId("dispatcher");
+    setSelectedTaskId(undefined);
+    setStatusText(`Loaded team "${savedTeam.name}".`);
+    setRunAlert({
+      tone: "info",
+      title: "Team loaded",
+      detail: `Restored "${savedTeam.name}" from saved teams.`,
+    });
+  };
+
+  const handleDeleteSavedTeam = (teamId: string) => {
+    const savedTeam = savedTeams.find((team) => team.id === teamId);
+
+    setSavedTeams((current) => deleteTeamRecord(current, teamId));
+
+    if (savedTeam) {
+      setRunAlert({
+        tone: "info",
+        title: "Team deleted",
+        detail: `Removed "${savedTeam.name}" from saved teams.`,
+      });
+    }
+  };
+
   const handleRemoveAgent = (agentId: string) => {
     setAgents((current) =>
       current.length === 1
@@ -356,6 +485,11 @@ export function StudioApp() {
     setIsRunning(true);
 
     let finalResponse: string | undefined;
+    let runStatus: SavedRunRecord["status"] = "completed";
+    const collectedEvents: OrchestrationEvent[] = [];
+    const dispatcherSnapshot = cloneDispatcher(dispatcher);
+    const runAgents = cloneAgents(enabledAgents);
+    let persistedMessages = clonePersistedMessages(nextMessages);
 
     try {
       await streamEvents(
@@ -367,6 +501,7 @@ export function StudioApp() {
           runtime,
         },
         (event) => {
+          collectedEvents.push(event);
           setEvents((current) => [...current, event]);
           setStatusText(buildStatusText(event));
 
@@ -392,6 +527,7 @@ export function StudioApp() {
           }
 
           if (event.type === "run-error") {
+            runStatus = "error";
             setErrorText(undefined);
             setRunAlert({
               tone: "error",
@@ -404,6 +540,7 @@ export function StudioApp() {
           }
 
           if (event.type === "run-cancelled") {
+            runStatus = "cancelled";
             setRunAlert({
               tone: "info",
               title: "Run cancelled",
@@ -418,19 +555,21 @@ export function StudioApp() {
 
       if (finalResponse) {
         const assistantMessage = finalResponse;
-
-        setMessages((current) => [
-          ...current,
+        persistedMessages = [
+          ...persistedMessages,
           {
             id: createId("msg"),
             role: "assistant",
             content: assistantMessage,
           },
-        ]);
+        ];
+
+        setMessages(persistedMessages);
       }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unexpected client error.";
+      runStatus = "error";
       setErrorText(undefined);
       setRunAlert({
         tone: "error",
@@ -439,8 +578,51 @@ export function StudioApp() {
       });
       setStatusText(message);
     } finally {
+      if (collectedEvents.length > 0) {
+        const createdAt = collectedEvents[0]?.timestamp ?? new Date().toISOString();
+        const runId = collectedEvents[0]?.runId ?? createId("run");
+
+        setRecentRuns((current) =>
+          saveRunRecord(current, {
+            id: runId,
+            title:
+              prompt.length > 72 ? `${prompt.slice(0, 72).trimEnd()}…` : prompt,
+            prompt,
+            createdAt,
+            status: runStatus,
+            dispatcher: dispatcherSnapshot,
+            agents: runAgents,
+            messages: persistedMessages,
+            events: collectedEvents,
+          }),
+        );
+      }
+
       setIsRunning(false);
     }
+  };
+
+  const handleOpenRun = (runId: string) => {
+    const run = recentRuns.find((entry) => entry.id === runId);
+
+    if (!run) {
+      return;
+    }
+
+    setDispatcher(run.dispatcher);
+    setAgents(run.agents);
+    setMessages(run.messages);
+    setEvents(run.events);
+    setDraft(run.prompt);
+    setSelectedNodeId("dispatcher");
+    setSelectedTaskId(undefined);
+    setStatusText(`Loaded ${run.status} run from ${new Date(run.createdAt).toLocaleString()}.`);
+    setRunAlert({
+      tone: "info",
+      title: "Run loaded",
+      detail: `Reopened "${run.title}" with its conversation and graph state.`,
+    });
+    setIsRunning(false);
   };
 
   return (
@@ -514,6 +696,10 @@ export function StudioApp() {
             onResetDefaults={handleResetDefaults}
             providerHealthById={providerHealthById}
             validationIssues={teamValidationIssues}
+            savedTeams={savedTeams}
+            onSaveCurrentTeam={handleSaveCurrentTeam}
+            onLoadSavedTeam={handleLoadSavedTeam}
+            onDeleteSavedTeam={handleDeleteSavedTeam}
           />
 
           <ChatPanel
@@ -524,9 +710,11 @@ export function StudioApp() {
             statusText={statusText}
             errorText={errorText}
             alert={runAlert}
+            recentRuns={recentRuns}
             onDraftChange={setDraft}
             onSubmit={handleSubmit}
             onPickPrompt={setDraft}
+            onOpenRun={handleOpenRun}
           />
 
           <div className="space-y-4">

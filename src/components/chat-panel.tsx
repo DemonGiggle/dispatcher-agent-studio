@@ -1,7 +1,8 @@
 "use client";
 
-import { ArrowUpRight, LoaderCircle, Sparkles } from "lucide-react";
+import { ArrowUpRight, History, LoaderCircle, Sparkles } from "lucide-react";
 
+import type { SavedRunRecord } from "@/lib/studio-persistence";
 import type { ConversationMessage, OrchestrationErrorCode } from "@/lib/types";
 
 type RunAlert = {
@@ -19,9 +20,11 @@ type ChatPanelProps = {
   statusText: string;
   errorText?: string;
   alert?: RunAlert;
+  recentRuns: SavedRunRecord[];
   onDraftChange: (value: string) => void;
   onSubmit: () => void;
   onPickPrompt: (prompt: string) => void;
+  onOpenRun: (runId: string) => void;
 };
 
 export function ChatPanel({
@@ -32,9 +35,11 @@ export function ChatPanel({
   statusText,
   errorText,
   alert,
+  recentRuns,
   onDraftChange,
   onSubmit,
   onPickPrompt,
+  onOpenRun,
 }: ChatPanelProps) {
   return (
     <div className="flex h-full flex-col gap-4">
@@ -65,6 +70,49 @@ export function ChatPanel({
               {prompt}
             </button>
           ))}
+        </div>
+
+        <div className="mb-4 rounded-2xl border border-white/10 bg-white/4 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <History className="h-4 w-4 text-slate-300" />
+            <p className="text-sm font-semibold text-slate-100">Recent runs</p>
+          </div>
+
+          <div className="space-y-2">
+            {recentRuns.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/10 bg-slate-900/40 p-3 text-sm text-slate-400">
+                Finished runs will appear here and can be reopened after refresh.
+              </div>
+            ) : (
+              recentRuns.slice(0, 5).map((run) => (
+                <button
+                  key={run.id}
+                  type="button"
+                  onClick={() => onOpenRun(run.id)}
+                  disabled={isRunning}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/60 p-3 text-left transition hover:border-cyan-400/30 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-slate-100">{run.title}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {new Date(run.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] ${
+                      run.status === "completed"
+                        ? "border border-emerald-400/20 bg-emerald-400/10 text-emerald-100"
+                        : run.status === "cancelled"
+                          ? "border border-slate-400/20 bg-slate-400/10 text-slate-200"
+                          : "border border-rose-400/20 bg-rose-400/10 text-rose-100"
+                    }`}
+                  >
+                    {run.status}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
         </div>
 
         <div className="space-y-3">

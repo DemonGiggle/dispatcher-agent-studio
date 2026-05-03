@@ -85,3 +85,16 @@ Core event types:
 `node-chunk` preserves the raw chunk plus the aggregated output-so-far so the
 UI can render live partial dispatcher and worker responses before the run
 finishes.
+
+## Persistence model
+
+Studio state is persisted locally in the browser with a versioned storage record:
+
+- **Autosaved**: current dispatcher config, agent team, conversation, and prompt draft
+- **Explicitly saved**: named teams from the agent builder
+- **Auto-recorded**: recent completed, cancelled, or failed runs with their messages and event log
+
+The current storage key is `dispatcher-agent-studio:v1`. The persistence layer
+uses a top-level `schemaVersion` field and a migration boundary in
+`src/lib/studio-persistence.ts`. New versions should migrate older payloads into
+the latest shape before the app hydrates client state.
