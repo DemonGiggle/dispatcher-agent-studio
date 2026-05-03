@@ -387,7 +387,8 @@ function chooseAgentForTask(
   const ranked = agents
     .filter((agent) => !usedAgentIds.has(agent.id))
     .map((agent) => {
-      const haystack = `${agent.name} ${agent.role} ${agent.specialty}`.toLowerCase();
+      const haystack =
+        `${agent.name} ${agent.role} ${agent.specialty} ${agent.capabilities.join(" ")}`.toLowerCase();
       const score = haystack
         .split(/\s+/)
         .filter((token) => token && searchSpace.includes(token)).length;
@@ -592,6 +593,7 @@ function buildAgentPrompt(
   return [
     `You are ${agent.name}, a ${agent.role} specialist.`,
     `Specialty: ${agent.specialty}`,
+    `Capabilities: ${agent.capabilities.join(", ")}`,
     "",
     "Dispatcher plan summary:",
     plan.summary,
@@ -897,7 +899,7 @@ export async function runOrchestration(
     const agentRoster = request.agents
       .map(
         (agent) =>
-          `- id=${agent.id}; name=${agent.name}; role=${agent.role}; specialty=${agent.specialty}; provider=${agent.provider}; model=${agent.model}`,
+          `- id=${agent.id}; name=${agent.name}; role=${agent.role}; specialty=${agent.specialty}; capabilities=${agent.capabilities.join(", ")}; provider=${agent.provider}; model=${agent.model}`,
       )
       .join("\n");
 

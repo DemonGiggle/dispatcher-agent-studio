@@ -8,6 +8,11 @@ import { ConfigPanel } from "@/components/config-panel";
 import { EventInspector } from "@/components/event-inspector";
 import { GraphPanel } from "@/components/graph-panel";
 import {
+  createBlankAgent,
+  getEnabledAgents,
+  validateAgentTeam,
+} from "@/lib/agent-builder";
+import {
   cloneAgentConfigs,
   cloneDispatcherConfig,
   cloneRuntimeOptions,
@@ -15,7 +20,6 @@ import {
   samplePrompts,
 } from "@/lib/defaults";
 import {
-  getDefaultModel,
   getDefaultProviderHealth,
   type ProviderHealthEntry,
 } from "@/lib/model-catalog";
@@ -156,10 +160,12 @@ export function StudioApp() {
     Record<ProviderId, ProviderHealthEntry>
   >(getDefaultProviderHealth);
   const [isRunning, setIsRunning] = useState(false);
+  const enabledAgents = useMemo(() => getEnabledAgents(agents), [agents]);
+  const teamValidationIssues = useMemo(() => validateAgentTeam(agents), [agents]);
 
   const snapshot = useMemo(
-    () => deriveRunSnapshot(dispatcher, agents, events),
-    [agents, dispatcher, events],
+    () => deriveRunSnapshot(dispatcher, enabledAgents, events),
+    [dispatcher, enabledAgents, events],
   );
 
   useEffect(() => {
@@ -214,18 +220,10 @@ export function StudioApp() {
 
     setAgents((current) => [
       ...current,
-      {
-        id: createId("agent"),
-        name: `Specialist ${current.length + 1}`,
-        role: "Specialist",
-        specialty: "Describe what this agent is best at.",
-        provider: "mock",
-        model: getDefaultModel("mock"),
-        temperature: 0.45,
-        systemPrompt:
-          "You are a focused specialist. Return structured, practical recommendations for the assigned task.",
-        accent: accentPalette[nextIndex % accentPalette.length],
-      },
+      createBlankAgent(
+        createId("agent"),
+        accentPalette[nextIndex % accentPalette.length],
+      ),
     ]);
   };
 
@@ -262,6 +260,16 @@ export function StudioApp() {
       return;
     }
 
+    if (teamValidationIssues.length > 0) {
+      setRunAlert({
+        tone: "error",
+        title: "Fix the agent team before running",
+        detail: teamValidationIssues.map((issue) => issue.message).join(" "),
+      });
+      setStatusText("Resolve the team configuration issues first.");
+      return;
+    }
+
     const nextMessages: ConversationMessage[] = [
       ...messages,
       {
@@ -289,7 +297,7 @@ export function StudioApp() {
           prompt,
           messages: nextMessages,
           dispatcher,
-          agents,
+          agents: enabledAgents,
           runtime,
         },
         (event) => {
@@ -408,7 +416,7 @@ export function StudioApp() {
                   Agents
                 </div>
                 <p className="text-sm font-medium text-slate-50">
-                  {agents.length} specialist{agents.length === 1 ? "" : "s"}
+                  {enabledAgents.length}/{agents.length} active
                 </p>
               </div>
 

@@ -54,8 +54,11 @@ export const agentConfigSchema = llmSelectionSchema.extend({
   name: z.string().min(1),
   role: z.string().min(1),
   specialty: z.string().min(1),
+  capabilities: z.array(z.string().min(1)).min(1).max(6).default(["Generalist"]),
   systemPrompt: z.string().min(1),
   accent: z.string().min(1),
+  enabled: z.boolean().default(true),
+  templateId: z.string().min(1).optional(),
 });
 
 export const conversationMessageSchema = z.object({
