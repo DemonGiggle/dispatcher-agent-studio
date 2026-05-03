@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, BrainCircuit, Waypoints } from "lucide-react";
+import {
+  Boxes,
+  BrainCircuit,
+  MessageSquareText,
+  Settings2,
+  Waypoints,
+  Workflow,
+} from "lucide-react";
 
 import { ChatPanel } from "@/components/chat-panel";
 import { ConfigPanel } from "@/components/config-panel";
@@ -62,6 +69,34 @@ type RunAlert = {
   detail: string;
   code?: OrchestrationErrorCode;
 };
+
+type WorkspaceTabId = "chat" | "inspect" | "setup";
+
+const workspaceTabs: {
+  id: WorkspaceTabId;
+  label: string;
+  description: string;
+  icon: typeof MessageSquareText;
+}[] = [
+  {
+    id: "chat",
+    label: "Chat",
+    description: "Prompt, conversation, and run replay",
+    icon: MessageSquareText,
+  },
+  {
+    id: "inspect",
+    label: "Inspect",
+    description: "Graph and event inspection",
+    icon: Workflow,
+  },
+  {
+    id: "setup",
+    label: "Setup",
+    description: "Dispatcher and agent configuration",
+    icon: Settings2,
+  },
+];
 
 function createId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -185,6 +220,7 @@ export function StudioApp() {
   const [activeRunId, setActiveRunId] = useState<string>();
   const [replayCursor, setReplayCursor] = useState<number | null>(null);
   const [isReplayPlaying, setIsReplayPlaying] = useState(false);
+  const [activeTab, setActiveTab] = useState<WorkspaceTabId>("chat");
   const enabledAgents = useMemo(() => getEnabledAgents(agents), [agents]);
   const teamValidationIssues = useMemo(() => validateAgentTeam(agents), [agents]);
   const activeRun = useMemo(
@@ -735,28 +771,52 @@ export function StudioApp() {
     setSelectedTaskId(undefined);
   };
 
+  const focusWorkspaceTarget = (tabId: WorkspaceTabId, targetId: string) => {
+    setActiveTab(tabId);
+
+    window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.focus();
+    });
+  };
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.14),transparent_28%),radial-gradient(circle_at_85%_18%,rgba(124,58,237,0.16),transparent_24%),linear-gradient(180deg,#020617,#0f172a)] px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
       <a
         href="#chat-panel"
+        onClick={(event) => {
+          event.preventDefault();
+          focusWorkspaceTarget("chat", "chat-panel");
+        }}
         className="sr-only absolute left-4 top-4 z-50 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-cyan-400"
       >
         Skip to chat panel
       </a>
       <a
         href="#config-panel"
+        onClick={(event) => {
+          event.preventDefault();
+          focusWorkspaceTarget("setup", "config-panel");
+        }}
         className="sr-only absolute left-40 top-4 z-50 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-cyan-400"
       >
         Skip to configuration
       </a>
       <a
         href="#graph-panel"
+        onClick={(event) => {
+          event.preventDefault();
+          focusWorkspaceTarget("inspect", "graph-panel");
+        }}
         className="sr-only absolute left-4 top-16 z-50 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-cyan-400"
       >
         Skip to graph
       </a>
       <a
         href="#inspector-panel"
+        onClick={(event) => {
+          event.preventDefault();
+          focusWorkspaceTarget("inspect", "inspector-panel");
+        }}
         className="sr-only absolute left-40 top-16 z-50 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-cyan-400"
       >
         Skip to inspector
@@ -814,31 +874,81 @@ export function StudioApp() {
           </div>
         </header>
 
-        <main className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)] 2xl:grid-cols-[360px_minmax(0,1fr)_520px]">
-          <div className="order-2 xl:order-1">
-            <ConfigPanel
-              dispatcher={dispatcher}
-              agents={agents}
-              disabled={isRunning}
-              onDispatcherChange={handleDispatcherChange}
-              onAgentChange={handleAgentChange}
-              onAddAgent={handleAddAgent}
-              onAddAgentFromTemplate={handleAddAgentFromTemplate}
-              onDuplicateAgent={handleDuplicateAgent}
-              onMoveAgent={handleMoveAgent}
-              onToggleAgent={handleToggleAgent}
-              onRemoveAgent={handleRemoveAgent}
-              onResetDefaults={handleResetDefaults}
-              providerHealthById={providerHealthById}
-              validationIssues={teamValidationIssues}
-              savedTeams={savedTeams}
-              onSaveCurrentTeam={handleSaveCurrentTeam}
-              onLoadSavedTeam={handleLoadSavedTeam}
-              onDeleteSavedTeam={handleDeleteSavedTeam}
-            />
-          </div>
+        <main className="space-y-4">
+          <section
+            aria-labelledby="workspace-tabs-heading"
+            className="rounded-[28px] border border-white/10 bg-slate-950/60 p-4 shadow-2xl shadow-slate-950/30 backdrop-blur sm:p-5"
+          >
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-cyan-200">
+                  Workspace navigation
+                </p>
+                <h2 id="workspace-tabs-heading" className="mt-2 text-lg font-semibold text-slate-50">
+                  Focus on one part of the studio at a time
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm text-slate-300">
+                  Switch between chat, runtime inspection, and setup without carrying the
+                  full page layout on screen all at once.
+                </p>
+              </div>
 
-          <div className="order-1 xl:order-2">
+              <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300">
+                Active workspace:{" "}
+                <span className="font-medium text-slate-100">
+                  {workspaceTabs.find((tab) => tab.id === activeTab)?.label}
+                </span>
+              </div>
+            </div>
+
+            <div
+              role="tablist"
+              aria-label="Studio workspaces"
+              className="-mx-1 mt-4 flex gap-3 overflow-x-auto px-1 pb-1"
+            >
+              {workspaceTabs.map((tab) => {
+                const isActive = tab.id === activeTab;
+                const Icon = tab.icon;
+
+                return (
+                  <button
+                    key={tab.id}
+                    id={`workspace-tab-${tab.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-controls={`workspace-panel-${tab.id}`}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`min-w-[220px] rounded-2xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:min-w-[240px] ${
+                      isActive
+                        ? "border-cyan-400/40 bg-cyan-400/12 text-slate-50"
+                        : "border-white/10 bg-white/4 text-slate-300 hover:border-cyan-400/25 hover:bg-cyan-400/8"
+                    }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon className="h-4 w-4" />
+                        <span className="text-sm font-semibold">{tab.label}</span>
+                      </div>
+                      <p
+                        className={`mt-2 text-xs leading-5 ${
+                          isActive ? "text-cyan-50/80" : "text-slate-300/80"
+                        }`}
+                      >
+                        {tab.description}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+          </section>
+
+          <div
+            id="workspace-panel-chat"
+            role="tabpanel"
+            aria-labelledby="workspace-tab-chat"
+            hidden={activeTab !== "chat"}
+            className="min-w-0"
+          >
             <ChatPanel
               draft={draft}
               messages={messages}
@@ -861,7 +971,13 @@ export function StudioApp() {
             />
           </div>
 
-          <div className="order-3 space-y-4 xl:col-span-2 2xl:col-span-1">
+          <div
+            id="workspace-panel-inspect"
+            role="tabpanel"
+            aria-labelledby="workspace-tab-inspect"
+            hidden={activeTab !== "inspect"}
+            className="min-w-0 space-y-4"
+          >
             <GraphPanel
               snapshot={snapshot}
               selectedNodeId={selectedNodeId}
@@ -880,6 +996,35 @@ export function StudioApp() {
               events={displayedEvents}
               selectedNodeId={selectedNodeId}
               selectedTaskId={selectedTaskId}
+            />
+          </div>
+
+          <div
+            id="workspace-panel-setup"
+            role="tabpanel"
+            aria-labelledby="workspace-tab-setup"
+            hidden={activeTab !== "setup"}
+            className="min-w-0"
+          >
+            <ConfigPanel
+              dispatcher={dispatcher}
+              agents={agents}
+              disabled={isRunning}
+              onDispatcherChange={handleDispatcherChange}
+              onAgentChange={handleAgentChange}
+              onAddAgent={handleAddAgent}
+              onAddAgentFromTemplate={handleAddAgentFromTemplate}
+              onDuplicateAgent={handleDuplicateAgent}
+              onMoveAgent={handleMoveAgent}
+              onToggleAgent={handleToggleAgent}
+              onRemoveAgent={handleRemoveAgent}
+              onResetDefaults={handleResetDefaults}
+              providerHealthById={providerHealthById}
+              validationIssues={teamValidationIssues}
+              savedTeams={savedTeams}
+              onSaveCurrentTeam={handleSaveCurrentTeam}
+              onLoadSavedTeam={handleLoadSavedTeam}
+              onDeleteSavedTeam={handleDeleteSavedTeam}
             />
           </div>
         </main>
