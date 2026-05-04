@@ -1,6 +1,18 @@
 import { expect, test } from "@playwright/test";
 
-test("runs the main studio workflow and exposes replay controls", async ({ page }) => {
+function boxesOverlap(
+  first: { x: number; y: number; width: number; height: number },
+  second: { x: number; y: number; width: number; height: number },
+) {
+  return !(
+    first.x + first.width <= second.x ||
+    second.x + second.width <= first.x ||
+    first.y + first.height <= second.y ||
+    second.y + second.height <= first.y
+  );
+}
+
+test("runs the main studio workflow and exposes replay controls", async ({ page }, testInfo) => {
   const prompt = "規劃一個具備 graph 視覺化的多 agent 產品協作介面";
 
   await page.goto("/");
@@ -48,6 +60,48 @@ test("runs the main studio workflow and exposes replay controls", async ({ page 
   await expect(page.getByRole("heading", { name: "Inspector" })).toBeVisible();
   await expect(page.getByText("Selection summary")).toBeVisible();
   await expect(page.getByText("Run outline")).toBeVisible();
+  await expect(
+    page.getByText("drag cards by the handle to refine the layout", { exact: false }),
+  ).toBeVisible();
+
+  const userNode = page.getByTestId("graph-node-user");
+  const dispatcherNode = page.getByTestId("graph-node-dispatcher");
+  const userBox = await userNode.boundingBox();
+  const dispatcherBeforeDrag = await dispatcherNode.boundingBox();
+
+  expect(userBox).not.toBeNull();
+  expect(dispatcherBeforeDrag).not.toBeNull();
+  expect(boxesOverlap(userBox!, dispatcherBeforeDrag!)).toBe(false);
+
+  const dragHandle = page.getByTestId("graph-node-drag-dispatcher");
+  const dragHandleBox = await dragHandle.boundingBox();
+
+  expect(dragHandleBox).not.toBeNull();
+
+  if (testInfo.project.name === "mobile-chrome") {
+    return;
+  }
+
+  await page.mouse.move(
+    dragHandleBox!.x + dragHandleBox!.width / 2,
+    dragHandleBox!.y + dragHandleBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    dragHandleBox!.x + dragHandleBox!.width / 2 + 120,
+    dragHandleBox!.y + dragHandleBox!.height / 2 + 80,
+    { steps: 16 },
+  );
+  await page.mouse.up();
+
+  const dispatcherAfterDrag = await dispatcherNode.boundingBox();
+
+  expect(dispatcherAfterDrag).not.toBeNull();
+  const movementDistance =
+    Math.abs(dispatcherAfterDrag!.x - dispatcherBeforeDrag!.x) +
+    Math.abs(dispatcherAfterDrag!.y - dispatcherBeforeDrag!.y);
+
+  expect(movementDistance).toBeGreaterThan(50);
 });
 
 test("preserves the main workflow on mobile layouts", async ({ page }) => {
