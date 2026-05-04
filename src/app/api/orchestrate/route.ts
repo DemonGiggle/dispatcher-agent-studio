@@ -49,12 +49,10 @@ function sanitizeEvent(event: OrchestrationEvent): OrchestrationEvent {
     case "node-status":
       nextEvent.detail = truncateText(nextEvent.detail);
       nextEvent.input = nextEvent.input ? truncateText(nextEvent.input) : nextEvent.input;
-      nextEvent.output = nextEvent.output ? truncateText(nextEvent.output) : nextEvent.output;
       return nextEvent;
     case "dispatcher-plan":
       nextEvent.summary = truncateText(nextEvent.summary);
       nextEvent.input = truncateText(nextEvent.input);
-      nextEvent.output = truncateText(nextEvent.output);
       return nextEvent;
     case "task-assignment":
       nextEvent.detail = truncateText(nextEvent.detail);
@@ -63,17 +61,12 @@ function sanitizeEvent(event: OrchestrationEvent): OrchestrationEvent {
       nextEvent.title = truncateText(nextEvent.title);
       nextEvent.detail = truncateText(nextEvent.detail);
       nextEvent.input = truncateText(nextEvent.input);
-      nextEvent.chunk = truncateText(nextEvent.chunk);
-      nextEvent.aggregate = truncateText(nextEvent.aggregate);
       return nextEvent;
     case "agent-result":
       nextEvent.input = truncateText(nextEvent.input);
-      nextEvent.output = truncateText(nextEvent.output);
       return nextEvent;
     case "final-response":
-      nextEvent.response = truncateText(nextEvent.response);
       nextEvent.input = truncateText(nextEvent.input);
-      nextEvent.output = truncateText(nextEvent.output);
       return nextEvent;
     case "provider-warning":
       nextEvent.message = truncateText(nextEvent.message);

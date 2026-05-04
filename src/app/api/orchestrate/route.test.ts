@@ -94,7 +94,7 @@ describe("POST /api/orchestrate", () => {
     });
   });
 
-  it("streams sanitized NDJSON events with the schema version header", async () => {
+  it("preserves model output text in streamed NDJSON events", async () => {
     const oversizedResponse = "x".repeat(5_051);
 
     vi.mocked(runOrchestration).mockImplementation(async (_request, onEvent) => {
@@ -142,8 +142,8 @@ describe("POST /api/orchestrate", () => {
 
     expect(lines).toHaveLength(1);
     expect(lines[0].type).toBe("final-response");
-    expect(lines[0].type === "final-response" ? lines[0].response : "").toContain(
-      "[truncated 51 chars]",
+    expect(lines[0].type === "final-response" ? lines[0].response : "").toBe(
+      oversizedResponse,
     );
     expect(vi.mocked(runOrchestration)).toHaveBeenCalledOnce();
     expect(vi.mocked(runOrchestration).mock.calls[0]?.[2]).toMatchObject({
