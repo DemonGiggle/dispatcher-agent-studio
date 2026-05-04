@@ -1,11 +1,39 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+const { createOpenAIMock, generateTextMock, generateObjectMock, streamTextMock } = vi.hoisted(
+  () => ({
+    createOpenAIMock: vi.fn(),
+    generateTextMock: vi.fn(),
+    generateObjectMock: vi.fn(),
+    streamTextMock: vi.fn(),
+  }),
+);
+
+vi.mock("@ai-sdk/openai", () => ({
+  createOpenAI: createOpenAIMock,
+}));
+
+vi.mock("ai", async () => {
+  const actual = await vi.importActual<typeof import("ai")>("ai");
+
+  return {
+    ...actual,
+    generateText: generateTextMock,
+    generateObject: generateObjectMock,
+    streamText: streamTextMock,
+  };
+});
+
 import { generatePlainText, generateStructuredObject } from "@/lib/providers";
 
 describe("provider execution", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    createOpenAIMock.mockReset();
+    generateTextMock.mockReset();
+    generateObjectMock.mockReset();
+    streamTextMock.mockReset();
   });
 
   it("falls back to the mock provider when credentials are missing", async () => {
@@ -150,6 +178,62 @@ describe("provider execution", () => {
       code: "unsupported-model",
       provider: "ollama",
       model: "llama3.2",
+    });
+  });
+
+  it("uses the local Ollama endpoint without requiring OPENAI_API_KEY", async () => {
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OLLAMA_API_KEY;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "gemma4:e4b" }],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    const openAiModelMock = vi.fn().mockReturnValue("ollama-model");
+    createOpenAIMock.mockReturnValue(openAiModelMock);
+    generateTextMock.mockResolvedValue({ text: "Local Ollama response" });
+
+    const result = await generatePlainText({
+      selection: {
+        provider: "ollama",
+        model: "gemma4:e4b",
+        temperature: 0.3,
+      },
+      system: "You are a local worker.",
+      prompt: "Respond once.",
+      mock: () => "unused",
+    });
+
+    expect(createOpenAIMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: "ollama",
+      }),
+    );
+    expect(openAiModelMock).toHaveBeenCalledWith("gemma4:e4b");
+    expect(generateTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "ollama-model",
+      }),
+    );
+    expect(result).toEqual({
+      text: "Local Ollama response",
+      meta: {
+        requestedProvider: "ollama",
+        requestedModel: "gemma4:e4b",
+        effectiveProvider: "ollama",
+        effectiveModel: "gemma4:e4b",
+        mode: "live",
+      },
     });
   });
 });

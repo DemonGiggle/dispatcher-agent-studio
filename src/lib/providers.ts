@@ -245,7 +245,7 @@ async function resolveLanguageModel(
       return {
         kind: "live",
         model: createOpenAI({
-          apiKey: getOllamaApiKey(),
+          apiKey: getOllamaApiKey() ?? "ollama",
           baseURL: getOllamaBaseURL(),
           name: "ollama",
         })(selection.model),
