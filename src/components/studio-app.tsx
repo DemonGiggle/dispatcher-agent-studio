@@ -1004,7 +1004,6 @@ export function StudioApp() {
             />
             <EventInspector
               snapshot={snapshot}
-              events={displayedEvents}
               selectedNodeId={selectedNodeId}
               selectedTaskId={selectedTaskId}
             />
