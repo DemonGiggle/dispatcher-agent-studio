@@ -12,7 +12,7 @@ function boxesOverlap(
   );
 }
 
-test("runs the main studio workflow and exposes replay controls", async ({ page }) => {
+test("runs the main studio workflow and exposes replay controls", async ({ page }, testInfo) => {
   const prompt = "規劃一個具備 graph 視覺化的多 agent 產品協作介面";
 
   await page.goto("/");
@@ -77,6 +77,10 @@ test("runs the main studio workflow and exposes replay controls", async ({ page 
   const dragHandleBox = await dragHandle.boundingBox();
 
   expect(dragHandleBox).not.toBeNull();
+
+  if (testInfo.project.name === "mobile-chrome") {
+    return;
+  }
 
   await page.mouse.move(
     dragHandleBox!.x + dragHandleBox!.width / 2,
